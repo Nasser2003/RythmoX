@@ -253,6 +253,126 @@ const TimelineDialogueBlock = ({
   );
 };
 
+const TimelineAudioWaveform: React.FC<{ waveform: number[], pps: number, duration: number, containerRef: React.RefObject<HTMLDivElement> }> = ({ waveform, pps, duration, containerRef }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerWidthRef = useRef<number>(1000);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      containerWidthRef.current = entries[0].contentRect.width;
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [containerRef]);
+  
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    let frameId: number;
+    let lastRenderX = -1;
+    let lastPps = -1;
+    let lastWidth = -1;
+
+    const peaksPerSecond = 100;
+
+    const draw = () => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const scrollLeft = container.scrollLeft;
+      const width = Math.max(10, containerWidthRef.current - TRACK_OFFSET);
+
+      if (Math.abs(scrollLeft - lastRenderX) > 2 || pps !== lastPps || width !== lastWidth) {
+        lastRenderX = scrollLeft;
+        lastPps = pps;
+        lastWidth = width;
+
+        const height = 40;
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
+
+        ctx.clearRect(0, 0, width, height);
+
+        if (waveform.length === 0) return;
+
+        ctx.fillStyle = '#4ade80'; // Light green
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+
+        const peakWidth = pps / peaksPerSecond;
+        const waveformLen = waveform.length;
+        
+        // Start time mapped smoothly
+        const startTime = Math.max(0, scrollLeft / pps);
+        const endTime = (scrollLeft + width) / pps;
+
+        const startPeak = Math.max(0, Math.floor(startTime * peaksPerSecond));
+        const endPeak = Math.min(waveformLen, Math.ceil(endTime * peaksPerSecond));
+
+        if (peakWidth < 1) {
+          // Heavy zoom-out: aggregate multiple peaks per screen pixel
+          const peaksPerPixel = 1 / peakWidth;
+          // Sampling rate to avoid massive loops on huge durations
+          const samplingLimit = 20; 
+
+          for (let px = 0; px < width; px++) {
+            const peakIdxStart = Math.floor(startPeak + px * peaksPerPixel);
+            const peakIdxEnd = Math.floor(startPeak + (px + 1) * peaksPerPixel);
+            
+            if (peakIdxStart >= waveformLen) break;
+            
+            let maxVal = 0;
+            // Optimization: if there are too many peaks, just sample some of them
+            const peakCount = peakIdxEnd - peakIdxStart;
+            const step = Math.max(1, Math.floor(peakCount / samplingLimit));
+            
+            for (let i = peakIdxStart; i < peakIdxEnd; i += step) {
+              if (waveform[i] > maxVal) maxVal = waveform[i];
+            }
+            
+            const val = maxVal / 255.0;
+            const h = Math.max(1, val * height);
+            const y = (height - h) / 2; // Centered vertically
+            ctx.rect(px, y, 1, h);
+          }
+        } else {
+          // Zoomed-in: Each peak is at least 1 pixel wide
+          for (let i = startPeak; i < endPeak; i++) {
+            const val = waveform[i] / 255.0;
+            const pixelX = (i / peaksPerSecond) * pps - scrollLeft;
+            const h = Math.max(1, val * height);
+            const y = (height - h) / 2; // Centered vertically
+            const w = Math.max(1, peakWidth - 0.5);
+            ctx.rect(pixelX, y, w, h);
+          }
+        }
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+      }
+
+      frameId = requestAnimationFrame(draw);
+    };
+
+    frameId = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(frameId);
+  }, [waveform, pps, duration, containerRef]);
+
+  return (
+    <div className="timeline-lane waveform-lane" style={{ display: 'flex', position: 'relative', height: '40px', borderBottom: '1px solid rgba(255,255,255,0.05)', backgroundColor: '#0f0f15' }}>
+      <div className="lane-header" style={{ position: 'sticky', left: 0, width: `${TRACK_OFFSET}px`, minWidth: `${TRACK_OFFSET}px`, height: '100%', backgroundColor: '#0f0f1e', zIndex: 30, padding: '0 8px', display: 'flex', alignItems: 'center', borderRight: `2px solid #4ade80`, borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+        <span style={{ color: '#4ade80', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>AUDIO</span>
+      </div>
+      <div style={{ position: 'sticky', left: TRACK_OFFSET, top: 0, bottom: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+        <canvas ref={canvasRef} style={{ height: '40px', opacity: 0.8, display: 'block' }} />
+      </div>
+    </div>
+  );
+};
+
 const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
@@ -262,6 +382,51 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
   const duration = getDuration() || 60; // fallback strictly for timeline bounds
 
   const { dialogues, characters, markers } = project;
+
+  const isPanningRef = useRef(false);
+  const lastPanPos = useRef({ x: 0, y: 0 });
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    // button === 1 is Middle Click
+    if (e.button === 1) {
+      e.preventDefault(); // Prevents the browser's default auto-scroll icon
+      isPanningRef.current = true;
+      lastPanPos.current = { x: e.clientX, y: e.clientY };
+      document.body.style.cursor = 'grabbing';
+    }
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (isPanningRef.current && containerRef.current) {
+      e.preventDefault();
+      const dx = e.clientX - lastPanPos.current.x;
+      const dy = e.clientY - lastPanPos.current.y;
+      
+      containerRef.current.scrollLeft -= dx;
+      containerRef.current.scrollTop -= dy;
+      
+      lastPanPos.current = { x: e.clientX, y: e.clientY };
+    }
+  }, []);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (e.button === 1 && isPanningRef.current) {
+      isPanningRef.current = false;
+      document.body.style.cursor = 'default';
+    }
+  }, []);
+
+  // Ensure panning stops if mouse leaves window or button is released outside
+  useEffect(() => {
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      if (e.button === 1 && isPanningRef.current) {
+        isPanningRef.current = false;
+        document.body.style.cursor = 'default';
+      }
+    };
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, []);
 
   // Zoom with Wheel
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -354,7 +519,7 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
     ticks.push(t);
   }
 
-  const tracksHeight = characters.length * 60 + 24;
+  const tracksHeight = (project.video?.waveform ? 40 : 0) + characters.length * 60 + 24;
 
   return (
     <div
@@ -362,6 +527,9 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
       ref={containerRef}
       id="timeline"
       onWheel={handleWheel}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
       style={{ overflowX: 'auto', overflowY: 'auto', position: 'relative', minHeight: '100px', maxHeight: '40vh', flexShrink: 0 }}
     >
       <div
@@ -436,6 +604,11 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
               End Limit
             </div>
           </div>
+        )}
+
+        {/* Audio Waveform */}
+        {project.video?.waveform && (
+          <TimelineAudioWaveform waveform={project.video.waveform} pps={pps} duration={duration} containerRef={containerRef} />
         )}
 
         {/* Lanes */}

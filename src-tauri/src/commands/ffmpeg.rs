@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::Write;
+use std::io::{Write, Read};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::{command, Emitter};
@@ -234,6 +234,71 @@ pub async fn check_ffmpeg() -> Result<String, String> {
     } else {
         Err("FFmpeg is installed but returned an error.".to_string())
     }
+}
+
+/// Extract audio peaks from video using FFmpeg for waveform visualization
+#[command]
+pub async fn extract_audio_waveform(
+    video_path: String,
+    peaks_per_second: u32,
+    app_handle: tauri::AppHandle,
+) -> Result<Vec<u8>, String> {
+    let _ = app_handle.emit("proxy-progress", ProxyProgress {
+        percent: 0.0,
+        stage: "Extracting audio waveform...".to_string(),
+    });
+
+    let sample_rate = 8000;
+    let samples_per_peak = sample_rate / peaks_per_second;
+
+    let mut command = std::process::Command::new(find_ffmpeg());
+    command.args([
+        "-i", &video_path,
+        "-vn",               // No video
+        "-ac", "1",          // Mono
+        "-ar", &sample_rate.to_string(), // 8kHz
+        "-f", "s16le",       // signed 16-bit little-endian PCM
+        "-"                  // output to stdout
+    ])
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null());
+
+    let mut child = command.spawn().map_err(|e| format!("Failed to spawn ffmpeg: {}", e))?;
+    let mut stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+
+    let mut peaks: Vec<u8> = Vec::new();
+    let mut current_max = 0_i16;
+    let mut current_min = 0_i16;
+    let mut sample_count = 0;
+
+    let mut buffer = [0u8; 8192];
+    loop {
+        let bytes_read = stdout.read(&mut buffer).map_err(|e| e.to_string())?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        // Process bytes as i16 (little endian)
+        for chunk in buffer[..bytes_read].chunks_exact(2) {
+            let sample = i16::from_le_bytes([chunk[0], chunk[1]]);
+            if sample > current_max { current_max = sample; }
+            if sample < current_min { current_min = sample; }
+
+            sample_count += 1;
+            if sample_count >= samples_per_peak {
+                let abs_max = current_max.saturating_abs().max(current_min.saturating_abs());
+                let normalized = ((abs_max as f64 / 32768.0).sqrt() * 255.0).min(255.0) as u8;
+                peaks.push(normalized);
+
+                current_max = 0;
+                current_min = 0;
+                sample_count = 0;
+            }
+        }
+    }
+
+    let _ = child.wait(); // Clean up process
+    Ok(peaks)
 }
 
 /// Save a base64 encoded image chunk to a generic temp file

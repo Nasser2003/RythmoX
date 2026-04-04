@@ -36,6 +36,7 @@ export interface VideoInfo {
   duration: number;
   fps: number;
   resolution: [number, number];
+  waveform?: number[] | null;
 }
 
 export interface BandSettings {

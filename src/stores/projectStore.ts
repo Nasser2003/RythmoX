@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
 import type { Project, Character, Dialogue, Marker, BandSettings, VideoInfo, VideoMetadata } from '../types/project';
 import { DEFAULT_SETTINGS, CHARACTER_COLORS } from '../types/project';
 
@@ -56,8 +57,8 @@ interface ProjectState {
 
   // Actions - System
   checkFfmpeg: () => Promise<void>;
-
-  // Actions - Timeline
+  exportSrt: () => Promise<void>;
+  importSrt: () => Promise<void>;
   setHoveredTime: (time: number | null) => void;
 }
 
@@ -170,6 +171,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           videoUrl = convertFileSrc(project.video.original_path);
         }
 
+        // Generate waveform if missing on legacy project load
+        if (project.video && !project.video.waveform && get().ffmpegAvailable) {
+           try {
+             set({ loadingMessage: 'Extracting audio waveform...' });
+             const waveform = await invoke<number[]>('extract_audio_waveform', {
+               videoPath: project.video.original_path,
+               peaksPerSecond: 100
+             });
+             project.video.waveform = waveform;
+           } catch (err) {
+             console.warn('Waveform extraction failed during load:', err);
+           }
+        }
+
         set({
           project,
           projectPath: path as string,
@@ -238,8 +253,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           const proxyPath = await invoke<string>('create_proxy', { videoPath: path });
           videoInfo.proxy_path = proxyPath;
         }
-      } catch {
-        console.warn('FFmpeg metadata extraction failed, loading video directly');
+
+        if (get().ffmpegAvailable) {
+          set({ loadingMessage: 'Extracting audio waveform...' });
+          const waveform = await invoke<number[]>('extract_audio_waveform', {
+             videoPath: path,
+             peaksPerSecond: 100
+          });
+          videoInfo.waveform = waveform;
+        }
+      } catch (err) {
+        console.warn('FFmpeg metadata extraction failed, loading video directly', err);
       }
 
       // Use proxy if available, otherwise original
@@ -410,4 +434,130 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   setHoveredTime: (time) => set({ hoveredTime: time }),
+  
+  exportSrt: async () => {
+    const { project } = get();
+    const sortedDialogues = [...project.dialogues].sort((a, b) => a.start_time - b.start_time);
+    
+    // Helper to format SRT time: HH:MM:SS,mmm
+    const formatSrtTime = (sec: number) => {
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = Math.floor(sec % 60);
+      const ms = Math.floor((sec % 1) * 1000);
+      return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
+    };
+
+    let srtContent = '';
+    sortedDialogues.forEach((d, index) => {
+      const char = project.characters.find(c => c.id === d.character_id);
+      const speakerPrefix = char ? `[${char.name}] ` : '';
+      srtContent += `${index + 1}\n`;
+      srtContent += `${formatSrtTime(d.start_time)} --> ${formatSrtTime(d.end_time)}\n`;
+      srtContent += `${speakerPrefix}${d.text}\n\n`;
+    });
+
+    const path = await save({
+      title: 'Export Subtitles (SRT)',
+      filters: [{ name: 'SubRip Subtitles', extensions: ['srt'] }],
+      defaultPath: `${project.name || 'subtitles'}.srt`
+    });
+
+    if (path) {
+      try {
+        await writeTextFile(path, srtContent);
+        console.log('SRT exported successfully');
+      } catch (err) {
+        console.error('SRT export failed:', err);
+      }
+    }
+  },
+
+  importSrt: async () => {
+    const selected = await open({
+      title: 'Import Subtitles (SRT)',
+      filters: [{ name: 'SubRip Subtitles', extensions: ['srt'] }],
+      multiple: false,
+    });
+    
+    if (!selected) return;
+    const path = selected as string;
+
+    try {
+      set({ isLoading: true, loadingMessage: 'Parsing SRT...' });
+      const content = await readTextFile(path);
+      
+      // Basic SRT parser
+      const blocks = content.trim().split(/\n\n+/);
+      const newDialogues: Dialogue[] = [];
+      const { project } = get();
+      const existingCharacters = [...project.characters];
+      
+      const parseSrtTime = (timeStr: string): number => {
+        const [time, ms] = timeStr.trim().split(',');
+        const [h, m, s] = time.split(':').map(Number);
+        return h * 3600 + m * 60 + s + (Number(ms) / 1000);
+      };
+
+      for (const block of blocks) {
+        const lines = block.split('\n');
+        if (lines.length < 3) continue;
+        
+        // Line 1: Timecodes
+        const times = lines[1].split('-->');
+        if (times.length !== 2) continue;
+        
+        const start = parseSrtTime(times[0]);
+        const end = parseSrtTime(times[1]);
+        
+        // Line 2+: Text (may include speaker in [Brackets])
+        let text = lines.slice(2).join('\n');
+        let charId = existingCharacters.length > 0 ? existingCharacters[0].id : '';
+        
+        const speakerMatch = text.match(/^\[(.*?)\]\s*(.*)/s);
+        if (speakerMatch) {
+          const charName = speakerMatch[1];
+          text = speakerMatch[2];
+          
+          let char = existingCharacters.find(c => c.name.toLowerCase() === charName.toLowerCase());
+          if (!char) {
+            const newChar: Character = {
+              id: crypto.randomUUID(),
+              name: charName,
+              color: CHARACTER_COLORS[existingCharacters.length % CHARACTER_COLORS.length]
+            };
+            existingCharacters.push(newChar);
+            char = newChar;
+          }
+          charId = char.id;
+        }
+
+        newDialogues.push({
+          id: crypto.randomUUID(),
+          character_id: charId,
+          start_time: start,
+          end_time: end,
+          text: text.trim(),
+          detection: '',
+          symbols: [],
+          font_family: project.settings.font_family,
+          font_size: project.settings.font_size,
+        });
+      }
+
+      set((state) => ({
+        project: {
+          ...state.project,
+          characters: existingCharacters,
+          dialogues: [...state.project.dialogues, ...newDialogues],
+        },
+        isLoading: false,
+        isDirty: true,
+      }));
+      
+    } catch (err) {
+      console.error('SRT import failed:', err);
+      set({ isLoading: false });
+    }
+  },
 }));

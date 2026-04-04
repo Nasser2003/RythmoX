@@ -17,6 +17,7 @@ pub fn run() {
             ffmpeg::check_ffmpeg,
             ffmpeg::save_image_chunk,
             ffmpeg::export_fast_video,
+            ffmpeg::extract_audio_waveform,
             // Project commands
             project::save_project,
             project::load_project,
