@@ -23,6 +23,13 @@ export interface Character {
   color: string;
 }
 
+export interface Marker {
+  id: string;
+  time: number;
+  label: string;
+  color: string;
+}
+
 export interface VideoInfo {
   original_path: string;
   proxy_path: string | null;
@@ -47,6 +54,7 @@ export interface Project {
   video: VideoInfo | null;
   characters: Character[];
   dialogues: Dialogue[];
+  markers: Marker[];
   settings: BandSettings;
 }
 
@@ -87,8 +95,20 @@ export const RYTHMO_SYMBOLS: { type: RythmoSymbol['symbol_type']; label: string;
 ];
 
 export const CHARACTER_COLORS = [
-  '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
-  '#FFEAA7', '#DDA0DD', '#FF8C42', '#98D8C8',
-  '#F7DC6F', '#BB8FCE', '#85C1E9', '#F0B27A',
-  '#82E0AA', '#F1948A', '#AED6F1', '#D7BDE2',
+  '#E63946', // vivid red
+  '#616161', // gray
+  '#457B9D', // steel blue
+  '#2A9D8F', // dark turquoise
+  '#E9C46A', // warm sand yellow
+  '#F4A261', // soft orange
+  '#E76F51', // coral red
+  '#6A4C93', // deep violet
+  '#8AC926', // lime green
+  '#1982C4', // saturated blue
+  '#FFCA3A', // bright yellow
+  '#FF595E', // rose red
+  '#6CCFF6', // light sky blue
+  '#9D4EDD', // saturated purple
+  '#4CAF50', // classic green
+  '#F72585', // strong magenta
 ];

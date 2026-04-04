@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import type { Project, Character, Dialogue, BandSettings, VideoInfo, VideoMetadata } from '../types/project';
+import type { Project, Character, Dialogue, Marker, BandSettings, VideoInfo, VideoMetadata } from '../types/project';
 import { DEFAULT_SETTINGS, CHARACTER_COLORS } from '../types/project';
 
 interface ProjectState {
@@ -18,16 +18,17 @@ interface ProjectState {
   isLoading: boolean;
   loadingMessage: string;
   ffmpegAvailable: boolean;
+  hoveredTime: number | null;
 
   // Actions - Project
   newProject: () => void;
   saveProject: () => Promise<void>;
   saveProjectAs: () => Promise<void>;
-  loadProject: () => Promise<void>;
+  loadProject: (filePath?: string) => Promise<void>;
   setProjectName: (name: string) => void;
 
   // Actions - Video
-  importVideo: () => Promise<void>;
+  importVideo: (filePath?: string) => Promise<void>;
   setVideoUrl: (url: string | null) => void;
 
   // Actions - Playback
@@ -45,11 +46,19 @@ interface ProjectState {
   deleteDialogue: (id: string) => void;
   selectDialogue: (id: string | null) => void;
 
+  // Actions - Markers
+  addMarker: (time: number) => void;
+  updateMarker: (id: string, updates: Partial<Marker>) => void;
+  deleteMarker: (id: string) => void;
+
   // Actions - Settings
   updateSettings: (updates: Partial<BandSettings>) => void;
 
   // Actions - System
   checkFfmpeg: () => Promise<void>;
+
+  // Actions - Timeline
+  setHoveredTime: (time: number | null) => void;
 }
 
 function generateId(): string {
@@ -64,6 +73,7 @@ const emptyProject: Project = {
   video: null,
   characters: [],
   dialogues: [],
+  markers: [],
   settings: { ...DEFAULT_SETTINGS },
 };
 
@@ -78,6 +88,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   isLoading: false,
   loadingMessage: '',
   ffmpegAvailable: false,
+  hoveredTime: null,
 
   // -- Project actions --
   newProject: () => {
@@ -125,17 +136,33 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
-  loadProject: async () => {
-    const path = await open({
-      title: 'Open RythmoX Project',
-      filters: [{ name: 'RythmoX Project', extensions: ['rythmox'] }],
-      multiple: false,
-    });
+  loadProject: async (filePath?: string) => {
+    let path = filePath;
+    if (!path) {
+      const selected = await open({
+        title: 'Open RythmoX Project',
+        filters: [{ name: 'RythmoX Project', extensions: ['rythmox'] }],
+        multiple: false,
+      });
+      if (!selected) return;
+      path = selected as string;
+    }
     if (path) {
       try {
         set({ isLoading: true, loadingMessage: 'Loading project...' });
-        const project = await invoke<Project>('load_project', { filePath: path });
-        
+        const loadedProject = await invoke<Project>('load_project', { filePath: path });
+
+        // Backwards compatibility for older project files
+        const project = {
+          ...loadedProject,
+          markers: loadedProject.markers || [],
+          characters: (loadedProject.characters || []).map(c => ({
+            ...c,
+            // Prevent legacy colors from breaking transparency suffix rules by stripping alpha channels
+            color: (c.color && c.color.length > 7) ? c.color.substring(0, 7) : c.color
+          }))
+        };
+
         let videoUrl: string | null = null;
         if (project.video?.proxy_path) {
           videoUrl = convertFileSrc(project.video.proxy_path);
@@ -168,17 +195,21 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   // -- Video actions --
-  importVideo: async () => {
-    const path = await open({
-      title: 'Import Video',
-      filters: [{
-        name: 'Video Files',
-        extensions: ['mp4', 'mov', 'mkv', 'avi', 'wmv', 'flv', 'webm', 'mxf', 'prores'],
-      }],
-      multiple: false,
-    });
+  importVideo: async (filePath?: string) => {
+    let path = filePath;
 
-    if (!path) return;
+    if (!path) {
+      const selected = await open({
+        title: 'Import Video',
+        filters: [{
+          name: 'Video Files',
+          extensions: ['mp4', 'mov', 'mkv', 'avi', 'wmv', 'flv', 'webm', 'mxf', 'prores'],
+        }],
+        multiple: false,
+      });
+      if (!selected) return;
+      path = selected as string;
+    }
 
     try {
       set({ isLoading: true, loadingMessage: 'Importing video...' });
@@ -199,8 +230,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         videoInfo.resolution = [metadata.width, metadata.height];
 
         // Check if we need a proxy (file > 500MB or not H.264)
-        const needsProxy = metadata.file_size > 500 * 1024 * 1024 || 
-                            !['h264', 'avc'].includes(metadata.codec.toLowerCase());
+        const needsProxy = metadata.file_size > 500 * 1024 * 1024 ||
+          !['h264', 'avc'].includes(metadata.codec.toLowerCase());
 
         if (needsProxy && get().ffmpegAvailable) {
           set({ loadingMessage: 'Creating proxy video...' });
@@ -318,6 +349,44 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   selectDialogue: (id) => set({ selectedDialogueId: id }),
 
+  // -- Marker actions --
+  addMarker: (time) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        markers: [...state.project.markers, {
+          id: generateId(),
+          time,
+          label: `Marker ${state.project.markers.length + 1}`,
+          color: '#fbbf24'
+        }],
+      },
+      isDirty: true,
+    }));
+  },
+
+  updateMarker: (id, updates) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        markers: state.project.markers.map((m) =>
+          m.id === id ? { ...m, ...updates } : m
+        ),
+      },
+      isDirty: true,
+    }));
+  },
+
+  deleteMarker: (id) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        markers: state.project.markers.filter((m) => m.id !== id),
+      },
+      isDirty: true,
+    }));
+  },
+
   // -- Settings actions --
   updateSettings: (updates) => {
     set((state) => ({
@@ -339,4 +408,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       console.warn('FFmpeg not available. Proxy creation disabled.');
     }
   },
+
+  setHoveredTime: (time) => set({ hoveredTime: time }),
 }));

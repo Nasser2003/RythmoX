@@ -1,12 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { useVideoSync } from './hooks/useVideoSync';
 import { useProjectStore } from './stores/projectStore';
 import VideoPlayer from './components/VideoPlayer';
 import TransportControls from './components/TransportControls';
-import BandeRythmo from './components/BandeRythmo';
+
 import Timeline from './components/Timeline';
 import DialogueEditor from './components/DialogueEditor';
+import ExportModal from './components/ExportModal';
 import CharacterManager from './components/CharacterManager';
+import MarkerManager from './components/MarkerManager';
 import './App.css';
 
 function App() {
@@ -24,12 +27,46 @@ function App() {
     importVideo,
     checkFfmpeg,
     setProjectName,
+    addMarker,
   } = useProjectStore();
 
   // Check FFmpeg on mount
   useEffect(() => {
     checkFfmpeg();
   }, [checkFfmpeg]);
+
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Handle Drag & Drop of video files
+  useEffect(() => {
+    let unlisten: () => void;
+
+    const setupListener = async () => {
+      // Listen to both event names to support different Tauri configurations/versions
+      unlisten = await listen<{ paths: string[] }>('tauri://drag-drop', (event) => {
+        const payload = event.payload;
+        // The payload could be an object with paths array or just the array itself
+        const paths = Array.isArray(payload) ? payload : (payload as any)?.paths || [];
+        
+        if (paths.length > 0) {
+          const file = paths[0];
+          const ext = file.split('.').pop()?.toLowerCase();
+          const videoExts = ['mp4', 'mov', 'mkv', 'avi', 'wmv', 'flv', 'webm', 'mxf', 'prores'];
+          if (ext === 'rythmox') {
+            loadProject(file);
+          } else if (ext && videoExts.includes(ext)) {
+            importVideo(file);
+          }
+        }
+      });
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [importVideo]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -45,22 +82,22 @@ function App() {
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          if (e.shiftKey) videoSync.seek(videoSync.currentTime - 5);
+          if (e.shiftKey) videoSync.seek(useProjectStore.getState().currentTime - 5);
           else videoSync.stepFrame(false);
           break;
         case 'ArrowRight':
           e.preventDefault();
-          if (e.shiftKey) videoSync.seek(videoSync.currentTime + 5);
+          if (e.shiftKey) videoSync.seek(useProjectStore.getState().currentTime + 5);
           else videoSync.stepFrame(true);
           break;
         case 'j':
-          videoSync.seek(videoSync.currentTime - 10);
+          videoSync.seek(useProjectStore.getState().currentTime - 10);
           break;
         case 'k':
           videoSync.togglePlay();
           break;
         case 'l':
-          videoSync.seek(videoSync.currentTime + 10);
+          videoSync.seek(useProjectStore.getState().currentTime + 10);
           break;
         case 's':
           if (e.ctrlKey) {
@@ -81,12 +118,19 @@ function App() {
             newProject();
           }
           break;
+        case 'm':
+          // Add marker at hovered timeline placement or playback head
+          e.preventDefault();
+          const state = useProjectStore.getState();
+          const targetTime = state.hoveredTime !== null ? state.hoveredTime : state.currentTime;
+          addMarker(targetTime);
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [videoSync, saveProject, saveProjectAs, loadProject, newProject]);
+  }, [videoSync, saveProject, saveProjectAs, loadProject, newProject, addMarker]);
 
   return (
     <div className="app" id="app-root">
@@ -111,7 +155,7 @@ function App() {
             <button className="menu-btn" onClick={newProject} title="New Project (Ctrl+N)" id="menu-new">
               New
             </button>
-            <button className="menu-btn" onClick={loadProject} title="Open Project (Ctrl+O)" id="menu-open">
+            <button className="menu-btn" onClick={() => loadProject()} title="Open Project (Ctrl+O)" id="menu-open">
               Open
             </button>
             <button className="menu-btn" onClick={saveProject} title="Save (Ctrl+S)" id="menu-save">
@@ -121,8 +165,11 @@ function App() {
               Save As
             </button>
             <span className="menu-divider" />
-            <button className="menu-btn accent" onClick={importVideo} title="Import Video" id="menu-import">
+            <button className="menu-btn accent" onClick={() => importVideo()} title="Import Video" id="menu-import">
               📁 Import Video
+            </button>
+            <button className="menu-btn" onClick={() => setIsExporting(true)} title="Export Video" id="menu-export" style={{ marginLeft: '10px', backgroundColor: 'rgba(74, 222, 128, 0.2)', color: '#4ade80' }}>
+              🎬 Export Final
             </button>
           </div>
         </div>
@@ -152,15 +199,43 @@ function App() {
           <VideoPlayer videoSync={videoSync} />
           <TransportControls videoSync={videoSync} />
           <Timeline videoSync={videoSync} />
-          <BandeRythmo />
         </div>
 
         {/* Right panel: Editor */}
         <div className="right-panel">
-          <CharacterManager />
+          <RightPanelTabs />
           <div className="panel-divider" />
-          <DialogueEditor />
+          <DialogueEditor videoSync={videoSync} />
         </div>
+      </div>
+      
+      {isExporting && <ExportModal onClose={() => setIsExporting(false)} />}
+    </div>
+  );
+}
+
+function RightPanelTabs() {
+  const [activeTab, setActiveTab] = useState<'chars' | 'markers'>('chars');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'auto', minHeight: '30vh' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: '8px' }}>
+        <button
+          onClick={() => setActiveTab('chars')}
+          style={{ flex: 1, padding: '10px', background: activeTab === 'chars' ? 'rgba(255,255,255,0.05)' : 'transparent', color: activeTab === 'chars' ? '#fff' : '#64748b', border: 'none', borderBottom: activeTab === 'chars' ? '2px solid #ef4444' : '2px solid transparent', cursor: 'pointer', fontWeight: 'bold' }}
+        >
+          Characters
+        </button>
+        <button
+          onClick={() => setActiveTab('markers')}
+          style={{ flex: 1, padding: '10px', background: activeTab === 'markers' ? 'rgba(255,255,255,0.05)' : 'transparent', color: activeTab === 'markers' ? '#fff' : '#64748b', border: 'none', borderBottom: activeTab === 'markers' ? '2px solid #fbbf24' : '2px solid transparent', cursor: 'pointer', fontWeight: 'bold' }}
+        >
+          Markers
+        </button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {activeTab === 'chars' ? <CharacterManager /> : <MarkerManager />}
       </div>
     </div>
   );

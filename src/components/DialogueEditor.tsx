@@ -3,63 +3,58 @@ import { useProjectStore } from '../stores/projectStore';
 import { DEFAULT_FONTS, RYTHMO_SYMBOLS } from '../types/project';
 import type { RythmoSymbol } from '../types/project';
 
-const DialogueEditor: React.FC = () => {
+interface DialogueEditorProps {
+  videoSync?: any; // Provided from App.tsx
+}
+
+const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
   const {
     project,
-    selectedDialogueId,
     currentTime,
     addDialogue,
     updateDialogue,
     deleteDialogue,
-    selectDialogue,
   } = useProjectStore();
 
   const { dialogues, characters, settings } = project;
-  const selectedDialogue = dialogues.find((d) => d.id === selectedDialogueId);
-  const [isAdding, setIsAdding] = useState(false);
 
-  // New dialogue form state
-  const [newText, setNewText] = useState('');
-  const [newCharId, setNewCharId] = useState('');
-  const [newStart, setNewStart] = useState(0);
-  const [newEnd, setNewEnd] = useState(0);
+  // For inline gear settings popup
+  const [openSettingsId, setOpenSettingsId] = useState<string | null>(null);
 
   const handleAdd = useCallback(() => {
-    setIsAdding(true);
-    setNewStart(currentTime);
-    setNewEnd(currentTime + 3);
-    setNewText('');
-    setNewCharId(characters[0]?.id || '');
-  }, [currentTime, characters]);
+    if (characters.length === 0) return;
 
-  const handleConfirmAdd = useCallback(() => {
-    if (!newText.trim() || !newCharId) return;
+    // Role selection logic: last used role or first available
+    // Array might be empty, so handle carefully.
+    const lastUse = dialogues.length > 0 ? dialogues[dialogues.length - 1].character_id : '';
+    const firstUse = characters[0].id;
+    const validCharId = characters.find(c => c.id === lastUse) ? lastUse : firstUse;
+
+    const start = useProjectStore.getState().currentTime;
     addDialogue({
-      character_id: newCharId,
-      start_time: newStart,
-      end_time: newEnd,
-      text: newText,
+      character_id: validCharId,
+      start_time: start,
+      end_time: start + 2.0, // Default duration
+      text: '', // Start empty, user types right away!
       detection: '',
       symbols: [],
       font_family: settings.font_family,
       font_size: settings.font_size,
     });
-    setIsAdding(false);
-  }, [newText, newCharId, newStart, newEnd, settings, addDialogue]);
+  }, [characters, dialogues, settings, addDialogue]);
 
   const handleAddSymbol = useCallback(
-    (type: RythmoSymbol['symbol_type']) => {
-      if (!selectedDialogue) return;
+    (dialogueId: string, type: RythmoSymbol['symbol_type']) => {
+      const dialogue = dialogues.find(d => d.id === dialogueId);
+      if (!dialogue) return;
       const newSymbol: RythmoSymbol = { symbol_type: type, time: currentTime };
-      updateDialogue(selectedDialogue.id, {
-        symbols: [...selectedDialogue.symbols, newSymbol],
+      updateDialogue(dialogueId, {
+        symbols: [...dialogue.symbols, newSymbol],
       });
     },
-    [selectedDialogue, currentTime, updateDialogue]
+    [dialogues, currentTime, updateDialogue]
   );
 
-  const getCharacterName = (id: string) =>
-    characters.find((c) => c.id === id)?.name || 'Unknown';
   const getCharacterColor = (id: string) =>
     characters.find((c) => c.id === id)?.color || '#94a3b8';
 
@@ -84,201 +79,133 @@ const DialogueEditor: React.FC = () => {
         </div>
       )}
 
-      {/* New dialogue form */}
-      {isAdding && (
-        <div className="dialogue-form glass-card">
-          <div className="form-row">
-            <label>Character</label>
-            <select value={newCharId} onChange={(e) => setNewCharId(e.target.value)} id="new-dialogue-char">
-              {characters.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-row">
-            <label>Text</label>
-            <textarea
-              value={newText}
-              onChange={(e) => setNewText(e.target.value)}
-              placeholder="Enter dialogue text..."
-              rows={2}
-              id="new-dialogue-text"
-            />
-          </div>
-          <div className="form-row form-row-split">
-            <div>
-              <label>Start (s)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={newStart}
-                onChange={(e) => setNewStart(parseFloat(e.target.value))}
-                id="new-dialogue-start"
-              />
-            </div>
-            <div>
-              <label>End (s)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={newEnd}
-                onChange={(e) => setNewEnd(parseFloat(e.target.value))}
-                id="new-dialogue-end"
-              />
-            </div>
-          </div>
-          <div className="form-actions">
-            <button className="btn btn-primary btn-sm" onClick={handleConfirmAdd} id="btn-confirm-add">
-              ✓ Confirm
-            </button>
-            <button className="btn btn-ghost btn-sm" onClick={() => setIsAdding(false)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Dialogue list */}
-      <div className="dialogue-list">
+      {/* Dialogue list inline editing */}
+      <div className="dialogue-list" style={{ gap: '8px', padding: '10px' }}>
         {dialogues.map((d) => (
           <div
             key={d.id}
-            className={`dialogue-item ${d.id === selectedDialogueId ? 'selected' : ''}`}
-            onClick={() => selectDialogue(d.id)}
-            style={{ borderLeftColor: getCharacterColor(d.character_id) }}
-            id={`dialogue-${d.id}`}
+            className="dialogue-item glass-card"
+            style={{ borderLeft: `4px solid ${getCharacterColor(d.character_id)}`, padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}
+            onDoubleClick={(e) => {
+              // Focus playhead in timeline on double click
+              e.stopPropagation();
+              if (videoSync) videoSync.seek(d.start_time);
+            }}
           >
-            <div className="dialogue-item-header">
-              <span
-                className="dialogue-char-badge"
-                style={{ background: getCharacterColor(d.character_id) }}
+            {/* Top row: Role, text, settings, delete */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative', paddingRight: '16px' }}>
+              <select
+                value={d.character_id}
+                onChange={(e) => updateDialogue(d.id, { character_id: e.target.value })}
+                style={{
+                  backgroundColor: getCharacterColor(d.character_id),
+                  color: '#000',
+                  fontWeight: 'bold',
+                  border: 'none',
+                  borderRadius: '4px',
+                  padding: '4px 6px',
+                  fontSize: '11px',
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  cursor: 'pointer',
+                  maxWidth: '80px',
+                  textAlign: 'center'
+                }}
               >
-                {getCharacterName(d.character_id)}
-              </span>
-              <span className="dialogue-time">
-                {d.start_time.toFixed(1)}s — {d.end_time.toFixed(1)}s
-              </span>
+                {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+
+              <input
+                type="text"
+                value={d.text}
+                onChange={(e) => updateDialogue(d.id, { text: e.target.value })}
+                onKeyDown={(e) => e.stopPropagation()} // Prevent timeline shortcuts
+                placeholder="Type here..."
+                style={{ flex: 1, backgroundColor: 'transparent', border: '1px solid transparent', color: '#e2e8f0', fontSize: '13px', outline: 'none', padding: '4px' }}
+                onFocus={(e) => e.target.style.borderBottom = '1px solid rgba(255,255,255,0.2)'}
+                onBlur={(e) => e.target.style.borderBottom = '1px solid transparent'}
+              />
+
+              <div style={{ position: 'absolute', right: 0, top: '100%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}>
+                <button
+                  onClick={() => setOpenSettingsId(openSettingsId === d.id ? null : d.id)}
+                  style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '15px', padding: 0 }}
+                  title="Advanced Settings"
+                >
+                  ⚙️
+                </button>
+
+                <button
+                  onClick={() => deleteDialogue(d.id)}
+                  style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '25px', fontWeight: 'bold', padding: 0 }}
+                  title="Delete Dialogue"
+                >
+                  ×
+                </button>
+              </div>
             </div>
-            <div className="dialogue-item-text">{d.text || '(empty)'}</div>
+
+            {/* Time labels below */}
+            <div style={{ fontSize: '10px', color: '#64748b' }}>
+              {d.start_time.toFixed(2)}s — {d.end_time.toFixed(2)}s <span style={{ opacity: 0.5 }}>(Double-click to seek)</span>
+            </div>
+
+            {/* Advanced Settings Popup inline */}
+            {openSettingsId === d.id && (
+              <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '11px', color: '#94a3b8' }}>Detection (Lip Sync)</label>
+                  <input
+                    type="text"
+                    value={d.detection}
+                    onChange={(e) => updateDialogue(d.id, { detection: e.target.value })}
+                    style={{ backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '12px', padding: '4px', borderRadius: '4px' }}
+                    placeholder="e.g. MBP..."
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11px', color: '#94a3b8' }}>Font</label>
+                    <select
+                      value={d.font_family || settings.font_family}
+                      onChange={(e) => updateDialogue(d.id, { font_family: e.target.value })}
+                      style={{ backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '12px', padding: '4px', borderRadius: '4px' }}
+                    >
+                      {DEFAULT_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11px', color: '#94a3b8' }}>Size</label>
+                    <input
+                      type="number"
+                      value={d.font_size || settings.font_size}
+                      onChange={(e) => updateDialogue(d.id, { font_size: parseFloat(e.target.value) })}
+                      style={{ width: '60px', backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '12px', padding: '4px', borderRadius: '4px' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '11px', color: '#94a3b8' }}>Insert Symbol (at playhead)</label>
+                  <div className="symbol-palette">
+                    {RYTHMO_SYMBOLS.map((sym) => (
+                      <button
+                        key={sym.type}
+                        className="symbol-btn"
+                        onClick={() => handleAddSymbol(d.id, sym.type)}
+                        title={sym.label}
+                      >
+                        {sym.icon}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
-
-      {/* Selected dialogue editor */}
-      {selectedDialogue && (
-        <div className="dialogue-detail glass-card">
-          <h4>Edit Dialogue</h4>
-          <div className="form-row">
-            <label>Character</label>
-            <select
-              value={selectedDialogue.character_id}
-              onChange={(e) => updateDialogue(selectedDialogue.id, { character_id: e.target.value })}
-              id="edit-dialogue-char"
-            >
-              {characters.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-row">
-            <label>Text</label>
-            <textarea
-              value={selectedDialogue.text}
-              onChange={(e) => updateDialogue(selectedDialogue.id, { text: e.target.value })}
-              rows={3}
-              id="edit-dialogue-text"
-            />
-          </div>
-          <div className="form-row">
-            <label>Detection</label>
-            <textarea
-              value={selectedDialogue.detection}
-              onChange={(e) => updateDialogue(selectedDialogue.id, { detection: e.target.value })}
-              rows={2}
-              placeholder="Lip detection notation..."
-              className="detection-input"
-              id="edit-dialogue-detection"
-            />
-          </div>
-          <div className="form-row form-row-split">
-            <div>
-              <label>Start (s)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={selectedDialogue.start_time}
-                onChange={(e) => updateDialogue(selectedDialogue.id, { start_time: parseFloat(e.target.value) })}
-                id="edit-dialogue-start"
-              />
-            </div>
-            <div>
-              <label>End (s)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={selectedDialogue.end_time}
-                onChange={(e) => updateDialogue(selectedDialogue.id, { end_time: parseFloat(e.target.value) })}
-                id="edit-dialogue-end"
-              />
-            </div>
-          </div>
-
-          {/* Font controls */}
-          <div className="form-row form-row-split">
-            <div>
-              <label>Font</label>
-              <select
-                value={selectedDialogue.font_family || settings.font_family}
-                onChange={(e) => updateDialogue(selectedDialogue.id, { font_family: e.target.value })}
-                id="edit-dialogue-font"
-              >
-                {DEFAULT_FONTS.map((f) => (
-                  <option key={f} value={f}>{f}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label>Size</label>
-              <input
-                type="number"
-                min={10}
-                max={48}
-                value={selectedDialogue.font_size || settings.font_size}
-                onChange={(e) => updateDialogue(selectedDialogue.id, { font_size: parseFloat(e.target.value) })}
-                id="edit-dialogue-fontsize"
-              />
-            </div>
-          </div>
-
-          {/* Rythmo symbols */}
-          <div className="form-row">
-            <label>Add Symbol at Current Time</label>
-            <div className="symbol-palette">
-              {RYTHMO_SYMBOLS.map((sym) => (
-                <button
-                  key={sym.type}
-                  className="symbol-btn"
-                  onClick={() => handleAddSymbol(sym.type)}
-                  title={sym.label}
-                  id={`sym-${sym.type}`}
-                >
-                  {sym.icon}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="form-actions">
-            <button
-              className="btn btn-danger btn-sm"
-              onClick={() => deleteDialogue(selectedDialogue.id)}
-              id="btn-delete-dialogue"
-            >
-              🗑 Delete
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

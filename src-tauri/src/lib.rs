@@ -15,6 +15,8 @@ pub fn run() {
             ffmpeg::get_video_metadata,
             ffmpeg::create_proxy,
             ffmpeg::check_ffmpeg,
+            ffmpeg::save_image_chunk,
+            ffmpeg::export_fast_video,
             // Project commands
             project::save_project,
             project::load_project,
