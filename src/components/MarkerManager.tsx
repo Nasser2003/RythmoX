@@ -1,13 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useProjectStore } from '../stores/projectStore';
 import { CHARACTER_COLORS } from '../types/project';
 
 const MarkerManager: React.FC = () => {
   const { project, updateMarker, deleteMarker, addMarker, currentTime } = useProjectStore();
+  const selectedMarkerIds = useProjectStore((s) => s.selectedMarkerIds);
+  const editingMarkerId = useProjectStore((s) => s.editingMarkerId);
   const markers = project.markers;
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState('');
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const handleEdit = (m: any) => {
     setEditingId(m.id);
@@ -25,6 +29,20 @@ const MarkerManager: React.FC = () => {
     updateMarker(m.id, { color: CHARACTER_COLORS[nextIndex] });
   };
 
+  // When a timeline double-click triggers requestMarkerEdit, open edit mode here
+  useEffect(() => {
+    if (!editingMarkerId) return;
+    const m = markers.find((marker) => marker.id === editingMarkerId);
+    if (m) {
+      setEditingId(editingMarkerId);
+      setEditLabel(m.label);
+      setTimeout(() => {
+        itemRefs.current[editingMarkerId]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        inputRefs.current[editingMarkerId]?.focus();
+      }, 50);
+    }
+  }, [editingMarkerId]);
+
   return (
     <div className="character-manager glass-card" style={{ display: 'flex', flexDirection: 'column', padding: '16px', gap: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -38,8 +56,10 @@ const MarkerManager: React.FC = () => {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', maxHeight: '200px' }}>
-        {markers.map((m) => (
-          <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(255,255,255,0.05)', padding: '6px 12px', borderRadius: '6px' }}>
+        {markers.map((m) => {
+          const isSelected = selectedMarkerIds.includes(m.id);
+          return (
+          <div key={m.id} ref={(el) => { itemRefs.current[m.id] = el; }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: isSelected ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.05)', padding: '6px 12px', borderRadius: '6px', border: isSelected ? `1px solid ${m.color}80` : '1px solid transparent' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
               <div 
                 onClick={() => cycleColor(m)}
@@ -50,6 +70,7 @@ const MarkerManager: React.FC = () => {
               {editingId === m.id ? (
                 <input
                   autoFocus
+                  ref={(el) => { inputRefs.current[m.id] = el; }}
                   type="text"
                   value={editLabel}
                   onChange={(e) => setEditLabel(e.target.value)}
@@ -77,7 +98,8 @@ const MarkerManager: React.FC = () => {
               ×
             </button>
           </div>
-        ))}
+          );
+        })}
 
         {markers.length === 0 && (
           <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'center', padding: '16px 0' }}>

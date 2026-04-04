@@ -14,6 +14,13 @@ interface ProjectState {
   currentTime: number;
   isPlaying: boolean;
   selectedDialogueId: string | null;
+  selectedDialogueIds: string[];
+  editingDialogueId: string | null;
+  selectedMarkerIds: string[];
+  activeRightTab: 'chars' | 'markers';
+  editingMarkerId: string | null;
+  selectedCharacterId: string | null;
+  autoAddOnSelect: boolean;
   videoUrl: string | null;
   isLoading: boolean;
   loadingMessage: string;
@@ -41,17 +48,29 @@ interface ProjectState {
   addCharacter: (name: string) => void;
   updateCharacter: (id: string, updates: Partial<Character>) => void;
   deleteCharacter: (id: string) => void;
+  reorderCharacters: (fromIndex: number, toIndex: number) => void;
+  selectCharacter: (id: string | null) => void;
+  toggleAutoAddOnSelect: () => void;
 
   // Actions - Dialogues
   addDialogue: (dialogue: Omit<Dialogue, 'id'>) => void;
   updateDialogue: (id: string, updates: Partial<Dialogue>) => void;
   deleteDialogue: (id: string) => void;
+  deleteSelected: () => void;
   selectDialogue: (id: string | null) => void;
+  toggleDialogueSelection: (id: string) => void;
+  splitDialogue: (id: string, atTime: number) => void;
+  fuseDialogues: () => void;
+  requestDialogueEdit: (id: string) => void;
 
   // Actions - Markers
   addMarker: (time: number) => void;
   updateMarker: (id: string, updates: Partial<Marker>) => void;
   deleteMarker: (id: string) => void;
+  selectMarker: (id: string | null) => void;
+  toggleMarkerSelection: (id: string) => void;
+  requestMarkerEdit: (id: string) => void;
+  setActiveRightTab: (tab: 'chars' | 'markers') => void;
 
   // Actions - Settings
   updateSettings: (updates: Partial<BandSettings>) => void;
@@ -90,6 +109,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   currentTime: 0,
   isPlaying: false,
   selectedDialogueId: null,
+  selectedDialogueIds: [],
+  editingDialogueId: null,
+  selectedMarkerIds: [],
+  activeRightTab: 'chars' as const,
+  editingMarkerId: null,
+  selectedCharacterId: null,
+  autoAddOnSelect: false,
   videoUrl: null,
   isLoading: false,
   loadingMessage: '',
@@ -111,6 +137,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       currentTime: 0,
       isPlaying: false,
       selectedDialogueId: null,
+      selectedDialogueIds: [],
+      selectedMarkerIds: [],
+      editingMarkerId: null,
+      activeRightTab: 'chars' as const,
+      selectedCharacterId: null,
     });
   },
 
@@ -299,6 +330,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setIsPlaying: (playing) => set({ isPlaying: playing }),
 
   // -- Character actions --
+  selectCharacter: (id) => set({ selectedCharacterId: id }),
+
+  toggleAutoAddOnSelect: () => set((state) => ({ autoAddOnSelect: !state.autoAddOnSelect })),
+
   addCharacter: (name) => {
     const { project } = get();
     const colorIndex = project.characters.length % CHARACTER_COLORS.length;
@@ -339,6 +374,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
+  reorderCharacters: (fromIndex, toIndex) => {
+    set((state) => {
+      const chars = [...state.project.characters];
+      const [moved] = chars.splice(fromIndex, 1);
+      chars.splice(toIndex, 0, moved);
+      return { project: { ...state.project, characters: chars }, isDirty: true };
+    });
+  },
+
   // -- Dialogue actions --
   addDialogue: (dialogueData) => {
     const dialogue: Dialogue = {
@@ -354,6 +398,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       },
       isDirty: true,
       selectedDialogueId: dialogue.id,
+      selectedDialogueIds: [dialogue.id],
+      editingDialogueId: dialogue.id,
     }));
   },
 
@@ -377,12 +423,104 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       },
       isDirty: true,
       selectedDialogueId: state.selectedDialogueId === id ? null : state.selectedDialogueId,
+      selectedDialogueIds: state.selectedDialogueIds.filter((x) => x !== id),
     }));
   },
 
-  selectDialogue: (id) => set({ selectedDialogueId: id }),
+  deleteSelected: () => {
+    const { selectedDialogueIds, selectedMarkerIds } = get();
+    set((state) => ({
+      project: {
+        ...state.project,
+        dialogues: state.project.dialogues.filter((d) => !selectedDialogueIds.includes(d.id)),
+        markers: state.project.markers.filter((m) => !selectedMarkerIds.includes(m.id)),
+      },
+      isDirty: true,
+      selectedDialogueId: null,
+      selectedDialogueIds: [],
+      selectedMarkerIds: [],
+    }));
+  },
 
-  // -- Marker actions --
+  selectDialogue: (id) => set({ selectedDialogueId: id, selectedDialogueIds: id ? [id] : [], selectedMarkerIds: [], editingMarkerId: null }),
+
+  toggleDialogueSelection: (id) => {
+    const { selectedDialogueIds } = get();
+    if (selectedDialogueIds.includes(id)) {
+      const newIds = selectedDialogueIds.filter((x) => x !== id);
+      set({
+        selectedDialogueIds: newIds,
+        selectedDialogueId: newIds.length === 1 ? newIds[0] : (newIds.length === 0 ? null : get().selectedDialogueId),
+      });
+    } else {
+      set({ selectedDialogueIds: [...selectedDialogueIds, id] });
+    }
+  },
+
+  requestDialogueEdit: (id) => set({ selectedDialogueId: id, selectedDialogueIds: [id], editingDialogueId: id, selectedMarkerIds: [], editingMarkerId: null }),
+
+  splitDialogue: (id, atTime) => {
+    const { project } = get();
+    const d = project.dialogues.find((x) => x.id === id);
+    if (!d) return;
+    if (atTime <= d.start_time || atTime >= d.end_time) return;
+
+    const ratio = (atTime - d.start_time) / (d.end_time - d.start_time);
+    const splitChar = Math.round(ratio * d.text.length);
+    const textA = d.text.slice(0, splitChar).trimEnd();
+    const textB = d.text.slice(splitChar).trimStart();
+
+    const idB = generateId();
+    const dialogueA: Dialogue = { ...d, end_time: atTime, text: textA, symbols: d.symbols.filter(s => s.time < atTime) };
+    const dialogueB: Dialogue = { ...d, id: idB, start_time: atTime, text: textB, symbols: d.symbols.filter(s => s.time >= atTime) };
+
+    set((state) => ({
+      project: {
+        ...state.project,
+        dialogues: state.project.dialogues
+          .map((x) => (x.id === id ? dialogueA : x))
+          .concat(dialogueB)
+          .sort((a, b) => a.start_time - b.start_time),
+      },
+      isDirty: true,
+      selectedDialogueId: idB,
+    }));
+  },
+
+  fuseDialogues: () => {
+    const { project, selectedDialogueIds } = get();
+    if (selectedDialogueIds.length !== 2) return;
+    const pair = selectedDialogueIds
+      .map((id) => project.dialogues.find((d) => d.id === id))
+      .filter(Boolean) as Dialogue[];
+    if (pair.length !== 2) return;
+    if (pair[0].character_id !== pair[1].character_id) return;
+    // pair[0] = first selected → has parameter priority
+    const priority = pair[0];
+    const other = pair[1];
+    // Text order follows temporal position
+    const [earlier, later] = priority.start_time <= other.start_time ? [priority, other] : [other, priority];
+    const fusedDialogue: Dialogue = {
+      ...priority,
+      start_time: Math.min(priority.start_time, other.start_time),
+      end_time: Math.max(priority.end_time, other.end_time),
+      text: earlier.text.trim() + ' ' + later.text.trim(),
+      symbols: [...priority.symbols, ...other.symbols].sort((a, b) => a.time - b.time),
+    };
+    set((state) => ({
+      project: {
+        ...state.project,
+        dialogues: state.project.dialogues
+          .filter((d) => d.id !== other.id)
+          .map((d) => (d.id === priority.id ? fusedDialogue : d))
+          .sort((a, b) => a.start_time - b.start_time),
+      },
+      isDirty: true,
+      selectedDialogueId: priority.id,
+      selectedDialogueIds: [priority.id],
+    }));
+  },
+
   addMarker: (time) => {
     set((state) => ({
       project: {
@@ -417,8 +555,38 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         markers: state.project.markers.filter((m) => m.id !== id),
       },
       isDirty: true,
+      selectedMarkerIds: state.selectedMarkerIds.filter((x) => x !== id),
     }));
   },
+
+  selectMarker: (id) => set({
+    selectedMarkerIds: id ? [id] : [],
+    selectedDialogueId: null,
+    selectedDialogueIds: [],
+    editingDialogueId: null,
+    activeRightTab: 'markers' as const,
+    editingMarkerId: null,
+  }),
+
+  toggleMarkerSelection: (id) => {
+    const { selectedMarkerIds } = get();
+    if (selectedMarkerIds.includes(id)) {
+      set({ selectedMarkerIds: selectedMarkerIds.filter((x) => x !== id) });
+    } else {
+      set({ selectedMarkerIds: [...selectedMarkerIds, id] });
+    }
+  },
+
+  requestMarkerEdit: (id) => set({
+    selectedMarkerIds: [id],
+    selectedDialogueId: null,
+    selectedDialogueIds: [],
+    editingDialogueId: null,
+    activeRightTab: 'markers' as const,
+    editingMarkerId: id,
+  }),
+
+  setActiveRightTab: (tab) => set({ activeRightTab: tab }),
 
   // -- Settings actions --
   updateSettings: (updates) => {

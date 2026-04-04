@@ -1,12 +1,20 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useProjectStore } from '../stores/projectStore';
-import { CHARACTER_COLORS } from '../types/project';
+import { CHARACTER_COLORS, type Character } from '../types/project';
+
+type PreviewCharacter = {
+  char: Character;
+  originalIndex: number;
+};
 
 const CharacterManager: React.FC = () => {
-  const { project, addCharacter, updateCharacter, deleteCharacter } = useProjectStore();
+  const { project, addCharacter, updateCharacter, deleteCharacter, reorderCharacters } = useProjectStore();
   const { characters } = project;
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const dragIndexRef = useRef<number | null>(null);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const handleAdd = useCallback(() => {
     if (!newName.trim()) return;
@@ -20,6 +28,32 @@ const CharacterManager: React.FC = () => {
     },
     [handleAdd]
   );
+
+  const previewCharacters: PreviewCharacter[] = characters.map((char, index) => ({
+    char,
+    originalIndex: index,
+  }));
+
+  if (draggingIndex !== null && dragOverIndex !== null) {
+    const [draggedItem] = previewCharacters.splice(draggingIndex, 1);
+    previewCharacters.splice(dragOverIndex, 0, draggedItem);
+  }
+
+  useEffect(() => {
+    if (draggingIndex === null) return;
+
+    const handlePointerUp = () => {
+      if (dragIndexRef.current !== null && dragOverIndex !== null && dragIndexRef.current !== dragOverIndex) {
+        reorderCharacters(dragIndexRef.current, dragOverIndex);
+      }
+      dragIndexRef.current = null;
+      setDraggingIndex(null);
+      setDragOverIndex(null);
+    };
+
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => window.removeEventListener('pointerup', handlePointerUp);
+  }, [draggingIndex, dragOverIndex, reorderCharacters]);
 
   return (
     <div className="character-manager" id="character-manager">
@@ -50,8 +84,35 @@ const CharacterManager: React.FC = () => {
 
       {/* Character list */}
       <div className="char-list">
-        {characters.map((char) => (
-          <div key={char.id} className="char-item" id={`char-${char.id}`}>
+        {previewCharacters.map(({ char, originalIndex }, previewIndex) => (
+          <div
+            key={char.id}
+            className={`char-item${draggingIndex !== null && char.id === characters[draggingIndex]?.id ? ' char-dragging char-preview-target' : ''}${draggingIndex !== null && previewIndex === dragOverIndex && char.id !== characters[draggingIndex]?.id ? ' char-drag-over' : ''}`}
+            id={`char-${char.id}`}
+            onPointerEnter={() => {
+              if (draggingIndex !== null) {
+                setDragOverIndex(previewIndex);
+              }
+            }}
+            onPointerUp={() => {
+              if (draggingIndex !== null) {
+                setDragOverIndex(previewIndex);
+              }
+            }}
+          >
+            <button
+              type="button"
+              className="char-drag-handle"
+              title="Drag to reorder"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                dragIndexRef.current = originalIndex;
+                setDraggingIndex(originalIndex);
+                setDragOverIndex(previewIndex);
+              }}
+            >
+              ⠿
+            </button>
             <div
               className="char-color-dot"
               style={{ background: char.color }}

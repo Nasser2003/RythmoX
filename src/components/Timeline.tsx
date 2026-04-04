@@ -10,7 +10,13 @@ interface TimelineProps {
 
 const TRACK_OFFSET = 120;
 
-const TimelineMarkerBlock = ({ m, pps, height, onUpdate, onDelete }: { m: Marker, pps: number, height: number, onUpdate: (id: string, updates: Partial<Marker>) => void, onDelete: (id: string) => void }) => {
+const TimelineMarkerBlock = ({ m, pps, height, onUpdate }: { m: Marker, pps: number, height: number, onUpdate: (id: string, updates: Partial<Marker>) => void }) => {
+  const selectMarker = useProjectStore((s) => s.selectMarker);
+  const toggleMarkerSelection = useProjectStore((s) => s.toggleMarkerSelection);
+  const requestMarkerEdit = useProjectStore((s) => s.requestMarkerEdit);
+  const selectedMarkerIds = useProjectStore((s) => s.selectedMarkerIds);
+  const isSelected = selectedMarkerIds.includes(m.id);
+
   const bindDrag = useDrag(({ movement: [mx], event, first, memo }) => {
     event.stopPropagation();
     if (first) return m.time;
@@ -24,17 +30,25 @@ const TimelineMarkerBlock = ({ m, pps, height, onUpdate, onDelete }: { m: Marker
   return (
     <div
       {...(bindDrag() as any)}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (e.ctrlKey || e.metaKey) {
+          toggleMarkerSelection(m.id);
+        } else {
+          selectMarker(m.id);
+        }
+      }}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        onDelete(m.id);
+        requestMarkerEdit(m.id);
       }}
       style={{ position: 'absolute', left: m.time * pps + TRACK_OFFSET, bottom: 0, transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}
     >
-      <div style={{ padding: '2px 6px', backgroundColor: m.color, color: '#000', fontSize: '8px', fontWeight: 'bold', borderRadius: '4px 4px 0 0', cursor: 'ew-resize', pointerEvents: 'auto', userSelect: 'none', boxShadow: '0 -2px 5px rgba(0,0,0,0.5)' }}>
+      <div style={{ padding: '2px 6px', backgroundColor: m.color, color: '#000', fontSize: '8px', fontWeight: 'bold', borderRadius: '4px 4px 0 0', cursor: 'ew-resize', pointerEvents: 'auto', userSelect: 'none', boxShadow: isSelected ? `0 0 0 2px #fff, 0 -2px 5px rgba(0,0,0,0.5)` : '0 -2px 5px rgba(0,0,0,0.5)', outline: isSelected ? '2px solid white' : 'none', outlineOffset: '1px' }}>
         {m.label}
       </div>
       {/* The vertical descending line */}
-      <div style={{ width: '2px', height: `${height}px`, backgroundColor: `${m.color}80`, position: 'absolute', top: '100%', zIndex: 15, pointerEvents: 'none' }} />
+      <div style={{ width: '2px', height: `${height}px`, backgroundColor: isSelected ? m.color : `${m.color}80`, position: 'absolute', top: '100%', zIndex: 15, pointerEvents: 'none' }} />
     </div>
   );
 };
@@ -59,8 +73,12 @@ const TimelineDialogueBlock = ({
   onUpdate: (id: string, updates: Partial<Dialogue>) => void
 }) => {
   const selectDialogue = useProjectStore((s) => s.selectDialogue);
+  const requestDialogueEdit = useProjectStore((s) => s.requestDialogueEdit);
   const selectedDialogueId = useProjectStore((s) => s.selectedDialogueId);
+  const selectedDialogueIds = useProjectStore((s) => s.selectedDialogueIds);
+  const toggleDialogueSelection = useProjectStore((s) => s.toggleDialogueSelection);
   const isSelected = selectedDialogueId === dialogue.id;
+  const isMultiSelected = selectedDialogueIds.includes(dialogue.id);
 
   const checkSnap = (time: number, event: any) => {
     // Some touch events may not have altKey, default to false
@@ -187,18 +205,23 @@ const TimelineDialogueBlock = ({
       className={`timeline-block ${isSelected ? 'selected' : ''}`}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        selectDialogue(dialogue.id);
-        // We could also focus the text editor here
+        requestDialogueEdit(dialogue.id);
       }}
       onClick={(e) => {
         e.stopPropagation();
-        selectDialogue(dialogue.id);
+        if (e.ctrlKey || e.metaKey) {
+          toggleDialogueSelection(dialogue.id);
+        } else {
+          selectDialogue(dialogue.id);
+        }
       }}
       style={{
         left: dialogue.start_time * pps + TRACK_OFFSET,
         width: blockWidth,
-        backgroundColor: isSelected ? `${color}40` : `${color}20`,
-        borderTop: `3px solid ${isSelected ? color : `${color}a0`}`,
+        backgroundColor: isMultiSelected ? `${color}40` : `${color}20`,
+        borderTop: `3px solid ${isMultiSelected ? color : `${color}60`}`,
+        outline: isMultiSelected && !isSelected ? `2px dashed ${color}` : 'none',
+        outlineOffset: '-2px',
         borderRadius: '6px',
         position: 'absolute',
         height: '40px',
@@ -224,7 +247,7 @@ const TimelineDialogueBlock = ({
         </div>
       )}
 
-      {/* Physically Stretched Text via SVG */}
+      {/* Physically Stretched Text */}
       <svg
         width="100%"
         height="100%"
@@ -233,9 +256,9 @@ const TimelineDialogueBlock = ({
       >
         <text
           x="10"
-          y="28" // Approx vertical center / baseline depending on block height (40px)
+          y="28"
           fill="#e2e8f0"
-          fontFamily={dialogue.font_family || 'sans-serif'}
+          fontFamily={isSelected ? `'Courier New', monospace` : (dialogue.font_family || 'sans-serif')}
           fontSize={12}
           fontWeight={dialogue.bold ? 'bold' : '500'}
           style={{ textDecoration: [dialogue.underline && 'underline', dialogue.crossed && 'line-through'].filter(Boolean).join(' ') || 'none' }}
@@ -245,6 +268,7 @@ const TimelineDialogueBlock = ({
           {dialogue.text}
         </text>
       </svg>
+
       <div
         {...(bindRight() as any)}
         className="resize-handle right"
@@ -254,7 +278,7 @@ const TimelineDialogueBlock = ({
   );
 };
 
-const TimelineAudioWaveform: React.FC<{ waveform: number[], pps: number, duration: number, containerRef: React.RefObject<HTMLDivElement> }> = ({ waveform, pps, duration, containerRef }) => {
+const TimelineAudioWaveform: React.FC<{ waveform: number[], pps: number, duration: number, containerRef: React.RefObject<HTMLDivElement | null> }> = ({ waveform, pps, duration, containerRef }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerWidthRef = useRef<number>(1000);
 
@@ -366,12 +390,94 @@ const TimelineAudioWaveform: React.FC<{ waveform: number[], pps: number, duratio
 const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
-  const { project, updateDialogue, updateMarker, deleteMarker, setHoveredTime } = useProjectStore();
+  const { project, updateDialogue, updateMarker, setHoveredTime } = useProjectStore();
+  const selectedCharacterId = useProjectStore((s) => s.selectedCharacterId);
+  const selectCharacter = useProjectStore((s) => s.selectCharacter);
   const { seek, getDuration } = videoSync;
   const [pps, setPps] = useState(150); // pixels per second (3x default zoom)
   const duration = getDuration() || 60; // fallback strictly for timeline bounds
 
   const { dialogues, characters, markers } = project;
+
+  // --- Lane drag-to-select ---
+  const [laneSelection, setLaneSelection] = useState<{ charId: string; startTime: number; endTime: number } | null>(null);
+  const laneSelectionRef = useRef<{ charId: string; startTime: number; endTime: number } | null>(null);
+  laneSelectionRef.current = laneSelection;
+  const laneDragRef = useRef<{ charId: string; startX: number; startTime: number; pointerId: number } | null>(null);
+
+  const clientXToTime = useCallback((clientX: number) => {
+    const container = containerRef.current;
+    if (!container) return 0;
+    const rect = container.getBoundingClientRect();
+    return Math.max(0, (clientX - rect.left + container.scrollLeft - TRACK_OFFSET) / pps);
+  }, [pps]);
+
+  const handleLanePointerDown = useCallback((e: React.PointerEvent, charId: string) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.nativeEvent.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    const t = clientXToTime(e.clientX);
+    laneDragRef.current = { charId, startX: e.clientX, startTime: t, pointerId: e.pointerId };
+    setLaneSelection({ charId, startTime: t, endTime: t });
+  }, [clientXToTime]);
+
+  const handleLanePointerMove = useCallback((e: React.PointerEvent) => {
+    const drag = laneDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const t = clientXToTime(e.clientX);
+    setLaneSelection({ charId: drag.charId, startTime: drag.startTime, endTime: t });
+  }, [clientXToTime]);
+
+  const handleLanePointerUp = useCallback((e: React.PointerEvent, charId: string) => {
+    const drag = laneDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const dx = Math.abs(e.clientX - drag.startX);
+    laneDragRef.current = null;
+
+    if (dx < 8) {
+      setLaneSelection(null);
+      const st = useProjectStore.getState();
+      st.selectCharacter(st.selectedCharacterId === charId ? null : charId);
+      return;
+    }
+
+    // Check auto-add flag
+    const sel = laneSelectionRef.current;
+    if (sel) {
+      const selStart = Math.min(sel.startTime, sel.endTime);
+      const selEnd = Math.max(sel.startTime, sel.endTime);
+
+      if (useProjectStore.getState().autoAddOnSelect) {
+        if (selEnd - selStart >= 0.05) {
+          const store = useProjectStore.getState();
+          store.addDialogue({
+            character_id: charId,
+            start_time: selStart,
+            end_time: selEnd,
+            text: '',
+            symbols: [],
+            font_family: store.project.settings.font_family,
+            bold: false,
+            underline: false,
+            crossed: false,
+          });
+          setLaneSelection(null);
+        }
+      } else {
+        // Auto-add OFF: select all dialogues fully inside the range
+        const store = useProjectStore.getState();
+        const contained = store.project.dialogues.filter(
+          d => d.character_id === charId && d.start_time >= selStart && d.end_time <= selEnd
+        );
+        if (contained.length > 0) {
+          store.selectDialogue(contained[0].id);
+          contained.slice(1).forEach(d => store.toggleDialogueSelection(d.id));
+        }
+        setLaneSelection(null);
+      }
+    }
+  }, []);
 
   const isPanningRef = useRef(false);
   const lastPanPos = useRef({ x: 0, y: 0 });
@@ -416,6 +522,54 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
     };
     window.addEventListener('mouseup', handleGlobalMouseUp);
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, []);
+
+  // Lane selection keyboard shortcuts (capture phase so they override App.tsx shortcuts)
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      const sel = laneSelectionRef.current;
+      if (!sel) return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      const selStart = Math.min(sel.startTime, sel.endTime);
+      const selEnd = Math.max(sel.startTime, sel.endTime);
+      if (selEnd - selStart < 0.01) { // ignore tiny selection
+        if (e.key === 'Escape') setLaneSelection(null);
+        return;
+      }
+
+      if (e.key === 'Delete') {
+        e.preventDefault();
+        e.stopPropagation();
+        const store = useProjectStore.getState();
+        const ids = store.project.dialogues
+          .filter(d => d.character_id === sel.charId && d.start_time < selEnd && d.end_time > selStart)
+          .map(d => d.id);
+        ids.forEach(id => store.deleteDialogue(id));
+        setLaneSelection(null);
+      } else if (e.key === 'd' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        const store = useProjectStore.getState();
+        store.addDialogue({
+          character_id: sel.charId,
+          start_time: selStart,
+          end_time: selEnd,
+          text: '',
+          symbols: [],
+          font_family: store.project.settings.font_family,
+          bold: false,
+          underline: false,
+          crossed: false,
+        });
+        setLaneSelection(null);
+      } else if (e.key === 'Escape') {
+        setLaneSelection(null);
+      }
+    };
+    window.addEventListener('keydown', handleKey, { capture: true });
+    return () => window.removeEventListener('keydown', handleKey, { capture: true });
   }, []);
 
   // Zoom with Wheel
@@ -552,7 +706,7 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
           {/* Markers Lane inside Ruler */}
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '14px', pointerEvents: 'none', zIndex: 35 }}>
             {markers.map((m) => (
-              <TimelineMarkerBlock key={m.id} m={m} pps={pps} height={tracksHeight} onUpdate={updateMarker} onDelete={deleteMarker} />
+              <TimelineMarkerBlock key={m.id} m={m} pps={pps} height={tracksHeight} onUpdate={updateMarker} />
             ))}
           </div>
         </div>
@@ -608,11 +762,52 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
           </div>
         )}
 
-        {characters.map((char) => (
-          <div key={char.id} className="timeline-lane" style={{ position: 'relative', height: '60px', borderBottom: '1px solid rgba(255,255,255,0.05)', backgroundColor: 'transparent' }}>
-            <div className="lane-header" style={{ position: 'sticky', left: 0, width: `${TRACK_OFFSET}px`, height: '100%', backgroundColor: '#0f0f1e', zIndex: 30, padding: '0 8px', display: 'flex', alignItems: 'center', borderRight: `2px solid ${char.color}`, borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-              <span style={{ color: '#fff', fontSize: '11px', fontWeight: 'bold', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{char.name}</span>
+        {characters.map((char) => {
+          const isCharSelected = selectedCharacterId === char.id;
+          const sel = laneSelection?.charId === char.id ? laneSelection : null;
+          const selStart = sel ? Math.min(sel.startTime, sel.endTime) : 0;
+          const selEnd = sel ? Math.max(sel.startTime, sel.endTime) : 0;
+          const selWidth = (selEnd - selStart) * pps;
+          return (
+          <div key={char.id} className="timeline-lane" style={{ position: 'relative', height: '60px', borderBottom: '1px solid rgba(255,255,255,0.05)', backgroundColor: isCharSelected ? `${char.color}10` : 'transparent', cursor: 'default' }}>
+            <div
+              className="lane-header"
+              onClick={() => selectCharacter(isCharSelected ? null : char.id)}
+              style={{ position: 'sticky', left: 0, width: `${TRACK_OFFSET}px`, height: '100%', backgroundColor: isCharSelected ? `${char.color}22` : '#0f0f1e', zIndex: 30, padding: '0 8px', display: 'flex', alignItems: 'center', borderRight: `2px solid ${char.color}`, borderBottom: '1px solid rgba(255,255,255,0.02)', cursor: 'pointer', userSelect: 'none', transition: 'background-color 0.15s' }}
+              title={isCharSelected ? `Deselect layer ${char.name}` : `Select layer ${char.name} (default for new dialogues)`}
+            >
+              <span style={{ color: isCharSelected ? '#fff' : '#cbd5e1', fontSize: '11px', fontWeight: isCharSelected ? 'bold' : 'normal', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{char.name}</span>
+              {isCharSelected && <span style={{ marginLeft: '4px', fontSize: '8px', color: char.color, flexShrink: 0 }}>●</span>}
             </div>
+
+            {/* Drag-select background capture overlay (behind dialogue blocks) */}
+            <div
+              style={{ position: 'absolute', left: TRACK_OFFSET, top: 0, right: 0, bottom: 0, zIndex: 6 }}
+              onPointerDown={(e) => handleLanePointerDown(e, char.id)}
+              onPointerMove={handleLanePointerMove}
+              onPointerUp={(e) => handleLanePointerUp(e, char.id)}
+            />
+
+            {/* Visual drag selection rectangle */}
+            {sel && selWidth > 4 && (
+              <div style={{
+                position: 'absolute',
+                left: selStart * pps + TRACK_OFFSET,
+                top: 2,
+                width: selWidth,
+                height: 'calc(100% - 4px)',
+                backgroundColor: `${char.color}20`,
+                border: `1px dashed ${char.color}cc`,
+                borderRadius: '3px',
+                zIndex: 20,
+                pointerEvents: 'none',
+              }}>
+                <span style={{ position: 'absolute', right: 4, top: 2, fontSize: '9px', color: char.color, fontFamily: 'monospace', userSelect: 'none' }}>
+                  {(selEnd - selStart).toFixed(2)}s
+                </span>
+              </div>
+            )}
+
             {dialogues
               .filter(d => d.character_id === char.id)
               .map(dialogue => (
@@ -629,7 +824,8 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
                 />
               ))}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

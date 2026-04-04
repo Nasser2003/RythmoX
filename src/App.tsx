@@ -134,6 +134,50 @@ function App() {
           const targetTime = state.hoveredTime !== null ? state.hoveredTime : state.currentTime;
           addMarker(targetTime);
           break;
+        case 'x':
+          if (!e.ctrlKey && !e.altKey && !e.shiftKey) {
+            e.preventDefault();
+            const st = useProjectStore.getState();
+            if (st.selectedDialogueId) st.splitDialogue(st.selectedDialogueId, st.currentTime);
+          }
+          break;
+        case 'Delete':
+          e.preventDefault();
+          useProjectStore.getState().deleteSelected();
+          break;
+        case 'f':
+          if (!e.ctrlKey && !e.altKey && !e.shiftKey) {
+            e.preventDefault();
+            useProjectStore.getState().fuseDialogues();
+          }
+          break;
+        case 'd':
+          if (!e.ctrlKey && !e.altKey && !e.shiftKey) {
+            e.preventDefault();
+            // Trigger add dialogue via the store — mirrors handleAdd logic in DialogueEditor
+            const dst = useProjectStore.getState();
+            const { characters: dChars, dialogues: dDialogues, settings: dSettings } = dst.project;
+            if (dChars.length === 0) break;
+            let charId: string;
+            if (dst.selectedCharacterId && dChars.find(c => c.id === dst.selectedCharacterId)) {
+              charId = dst.selectedCharacterId;
+            } else {
+              const lastUse = dDialogues.length > 0 ? dDialogues[dDialogues.length - 1].character_id : '';
+              charId = dChars.find(c => c.id === lastUse) ? lastUse : dChars[0].id;
+            }
+            dst.addDialogue({
+              character_id: charId,
+              start_time: dst.currentTime,
+              end_time: dst.currentTime + 2.0,
+              text: '',
+              symbols: [],
+              font_family: dSettings.font_family,
+              bold: false,
+              underline: false,
+              crossed: false,
+            });
+          }
+          break;
       }
     };
 
@@ -246,7 +290,8 @@ function App() {
 }
 
 function RightPanelTabs() {
-  const [activeTab, setActiveTab] = useState<'chars' | 'markers'>('chars');
+  const activeTab = useProjectStore((s) => s.activeRightTab);
+  const setActiveTab = useProjectStore((s) => s.setActiveRightTab);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'auto', minHeight: '30vh' }}>

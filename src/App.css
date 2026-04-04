@@ -217,6 +217,16 @@ html, body, #root {
   50% { opacity: 0.4; }
 }
 
+@keyframes dialogue-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(255,255,255,0.0); background-color: rgba(255,255,255,0.12); }
+  40%  { box-shadow: 0 0 0 3px rgba(255,255,255,0.35); background-color: rgba(255,255,255,0.18); }
+  100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.0); background-color: transparent; }
+}
+
+.dialogue-item.flash {
+  animation: dialogue-flash 0.7s ease-out;
+}
+
 .ffmpeg-warning {
   color: var(--warning);
   font-size: 11px;
@@ -543,6 +553,15 @@ html, body, #root {
   background: var(--bg-card);
 }
 
+.char-dragging {
+  opacity: 0.45;
+}
+
+.char-preview-target {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
 .char-color-dot {
   width: 14px;
   height: 14px;
@@ -574,6 +593,34 @@ html, body, #root {
   font-size: 13px;
   font-family: var(--font-sans);
   outline: none;
+}
+
+.char-drag-handle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: grab;
+  padding: 0 4px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  user-select: none;
+  flex-shrink: 0;
+  touch-action: none;
+}
+
+.char-item:hover .char-drag-handle {
+  opacity: 1;
+}
+
+.char-drag-handle:active {
+  cursor: grabbing;
+}
+
+.char-drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .char-delete-btn {
@@ -623,6 +670,7 @@ html, body, #root {
   border-left: 3px solid var(--text-muted);
   background: var(--bg-card);
   cursor: pointer;
+  position: relative;
   transition: all var(--transition-fast);
 }
 
@@ -633,6 +681,10 @@ html, body, #root {
 .dialogue-item.selected {
   background: var(--accent-glow);
   border-left-width: 4px;
+}
+
+.dialogue-item.role-menu-open {
+  z-index: 50;
 }
 
 .dialogue-item-header {
@@ -664,6 +716,169 @@ html, body, #root {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.dialogue-role-select {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.dialogue-role-trigger {
+  --role-color: #94a3b8;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 84px;
+  max-width: 132px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--role-color) 45%, rgba(255, 255, 255, 0.08));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--role-color) 30%, rgba(15, 23, 42, 0.95)), rgba(15, 23, 42, 0.95));
+  color: #f8fafc;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.dialogue-role-trigger:hover,
+.dialogue-role-trigger.open {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
+  border-color: color-mix(in srgb, var(--role-color) 65%, rgba(255, 255, 255, 0.12));
+}
+
+.dialogue-role-trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--role-color) 28%, transparent), 0 12px 24px rgba(0, 0, 0, 0.24);
+}
+
+.dialogue-role-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--role-color);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+}
+
+.dialogue-role-label,
+.dialogue-role-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialogue-role-label {
+  flex: 1;
+  text-align: left;
+}
+
+.dialogue-role-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  min-width: 220px;
+  max-width: 260px;
+  padding: 8px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(17, 24, 39, 0.96));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(14px);
+}
+
+.dialogue-role-menu.open-down {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
+
+.dialogue-role-option {
+  --role-color: #94a3b8;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.dialogue-role-option:hover {
+  background: color-mix(in srgb, var(--role-color) 12%, rgba(255, 255, 255, 0.02));
+  border-color: color-mix(in srgb, var(--role-color) 35%, rgba(255, 255, 255, 0.08));
+  transform: translateX(2px);
+}
+
+.dialogue-role-option.selected {
+  background: color-mix(in srgb, var(--role-color) 16%, rgba(255, 255, 255, 0.04));
+  border-color: color-mix(in srgb, var(--role-color) 45%, rgba(255, 255, 255, 0.12));
+}
+
+.dialogue-role-check {
+  margin-left: auto;
+  color: var(--role-color);
+  font-weight: 700;
+}
+
+.dialogue-top-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialogue-time-inline {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  color: #64748b;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dialogue-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dialogue-textarea {
+  width: 100%;
+  min-height: 30px;
+  max-height: 180px;
+  padding: 6px 4px 2px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  color: #e2e8f0;
+  font-size: 13px;
+  line-height: 1.45;
+  font-family: var(--font-sans);
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dialogue-textarea:focus {
+  border-bottom-color: rgba(255, 255, 255, 0.2);
+}
+
+.dialogue-textarea::placeholder {
+  color: rgba(148, 163, 184, 0.7);
 }
 
 /* ---- Dialogue Detail / Form ---- */
