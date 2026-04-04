@@ -1,7 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useProjectStore } from '../stores/projectStore';
-import { DEFAULT_FONTS, RYTHMO_SYMBOLS } from '../types/project';
-import type { RythmoSymbol } from '../types/project';
+import { DEFAULT_FONTS } from '../types/project';
 
 interface DialogueEditorProps {
   videoSync?: any; // Provided from App.tsx
@@ -41,18 +40,6 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
       font_size: settings.font_size,
     });
   }, [characters, dialogues, settings, addDialogue]);
-
-  const handleAddSymbol = useCallback(
-    (dialogueId: string, type: RythmoSymbol['symbol_type']) => {
-      const dialogue = dialogues.find(d => d.id === dialogueId);
-      if (!dialogue) return;
-      const newSymbol: RythmoSymbol = { symbol_type: type, time: currentTime };
-      updateDialogue(dialogueId, {
-        symbols: [...dialogue.symbols, newSymbol],
-      });
-    },
-    [dialogues, currentTime, updateDialogue]
-  );
 
   const getCharacterColor = (id: string) =>
     characters.find((c) => c.id === id)?.color || '#94a3b8';
@@ -171,22 +158,6 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
                       onChange={(e) => updateDialogue(d.id, { font_size: parseFloat(e.target.value) })}
                       style={{ width: '60px', backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '12px', padding: '4px', borderRadius: '4px' }}
                     />
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '11px', color: '#94a3b8' }}>Insert Symbol (at playhead)</label>
-                  <div className="symbol-palette">
-                    {RYTHMO_SYMBOLS.map((sym) => (
-                      <button
-                        key={sym.type}
-                        className="symbol-btn"
-                        onClick={() => handleAddSymbol(d.id, sym.type)}
-                        title={sym.label}
-                      >
-                        {sym.icon}
-                      </button>
-                    ))}
                   </div>
                 </div>
               </div>

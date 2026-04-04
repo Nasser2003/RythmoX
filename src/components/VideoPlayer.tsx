@@ -17,6 +17,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoSync }) => {
           ref={videoRef}
           src={videoUrl}
           className="video-element"
+          preload="auto"
           onClick={togglePlay}
           onEnded={() => setIsPlaying(false)}
           onLoadedMetadata={() => {

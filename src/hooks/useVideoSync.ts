@@ -10,29 +10,53 @@ export function useVideoSync() {
   const syncLoop = useCallback(() => {
     if (videoRef.current && !videoRef.current.paused) {
       setCurrentTime(videoRef.current.currentTime);
+      animFrameRef.current = requestAnimationFrame(syncLoop);
     }
-    animFrameRef.current = requestAnimationFrame(syncLoop);
   }, [setCurrentTime]);
 
-  useEffect(() => {
-    animFrameRef.current = requestAnimationFrame(syncLoop);
-    return () => cancelAnimationFrame(animFrameRef.current);
-  }, [syncLoop]);
+  const play = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
 
-  const play = useCallback(() => {
-    videoRef.current?.play();
-    setIsPlaying(true);
-  }, [setIsPlaying]);
+    // If video hasn't loaded enough data yet, wait for canplay
+    if (video.readyState < 3) {
+      await new Promise<void>((resolve) => {
+        const onReady = () => { video.removeEventListener('canplay', onReady); resolve(); };
+        video.addEventListener('canplay', onReady);
+        // Safety timeout: don't wait forever
+        setTimeout(() => { video.removeEventListener('canplay', onReady); resolve(); }, 5000);
+      });
+    }
+
+    try {
+      await video.play();
+      setIsPlaying(true);
+      // Start sync loop only when actually playing
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = requestAnimationFrame(syncLoop);
+    } catch (err) {
+      console.warn('Video play() failed:', err);
+      setIsPlaying(false);
+    }
+  }, [setIsPlaying, syncLoop]);
 
   const pause = useCallback(() => {
     videoRef.current?.pause();
+    cancelAnimationFrame(animFrameRef.current);
+    // Sync one last time to get accurate position
+    if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
     setIsPlaying(false);
-  }, [setIsPlaying]);
+  }, [setIsPlaying, setCurrentTime]);
 
   const togglePlay = useCallback(() => {
     if (useProjectStore.getState().isPlaying) pause();
     else play();
   }, [play, pause]);
+
+  // Stop sync loop on unmount
+  useEffect(() => {
+    return () => cancelAnimationFrame(animFrameRef.current);
+  }, []);
 
   const seek = useCallback((time: number) => {
     if (videoRef.current) {

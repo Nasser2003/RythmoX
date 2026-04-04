@@ -236,39 +236,66 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         resolution: [1920, 1080],
       };
 
-      // Try to get metadata via FFmpeg (optional)
       try {
         const metadata = await invoke<VideoMetadata>('get_video_metadata', { videoPath: path });
         videoInfo.duration = metadata.duration;
         videoInfo.fps = metadata.fps;
         videoInfo.resolution = [metadata.width, metadata.height];
 
-        // Check if we need a proxy (file > 500MB or not H.264)
-        const needsProxy = metadata.file_size > 500 * 1024 * 1024 ||
-          !['h264', 'avc'].includes(metadata.codec.toLowerCase());
+        const isWebCompatible = ['h264', 'avc', 'hevc', 'h265'].includes(metadata.codec.toLowerCase());
 
-        if (needsProxy && get().ffmpegAvailable) {
-          set({ loadingMessage: 'Creating proxy video...' });
-          const proxyPath = await invoke<string>('create_proxy', { videoPath: path });
-          videoInfo.proxy_path = proxyPath;
+        // Set video immediately so user can start working
+        const immediateUrl = convertFileSrc(path as string);
+        set((state) => ({
+          project: { ...state.project, video: { ...videoInfo } },
+          videoUrl: immediateUrl,
+          isDirty: true,
+          isLoading: false,
+          loadingMessage: '',
+        }));
+
+        // Proxy + waveform in background (non-blocking)
+        if (!isWebCompatible && get().ffmpegAvailable) {
+          set({ loadingMessage: 'Creating proxy for incompatible format...' });
+          try {
+            const proxyPath = await invoke<string>('create_proxy', { videoPath: path });
+            videoInfo.proxy_path = proxyPath;
+            const proxyUrl = convertFileSrc(proxyPath);
+            set((state) => ({
+              project: { ...state.project, video: { ...state.project.video!, proxy_path: proxyPath } },
+              videoUrl: proxyUrl,
+              loadingMessage: '',
+            }));
+          } catch (e) {
+            console.warn('Proxy creation failed, using original', e);
+            set({ loadingMessage: '' });
+          }
         }
 
         if (get().ffmpegAvailable) {
           set({ loadingMessage: 'Extracting audio waveform...' });
-          const waveform = await invoke<number[]>('extract_audio_waveform', {
-             videoPath: path,
-             peaksPerSecond: 100
-          });
-          videoInfo.waveform = waveform;
+          try {
+            const waveform = await invoke<number[]>('extract_audio_waveform', {
+              videoPath: path,
+              peaksPerSecond: 100,
+            });
+            set((state) => ({
+              project: { ...state.project, video: { ...state.project.video!, waveform } },
+              loadingMessage: '',
+            }));
+          } catch (e) {
+            console.warn('Waveform extraction failed', e);
+            set({ loadingMessage: '' });
+          }
         }
+
+        return; // already set state above
       } catch (err) {
         console.warn('FFmpeg metadata extraction failed, loading video directly', err);
       }
 
-      // Use proxy if available, otherwise original
-      const filePath = videoInfo.proxy_path || videoInfo.original_path;
-      const videoUrl = convertFileSrc(filePath);
-
+      // Fallback: no metadata, load directly
+      const videoUrl = convertFileSrc(path as string);
       set((state) => ({
         project: { ...state.project, video: videoInfo },
         videoUrl,

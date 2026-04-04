@@ -309,7 +309,9 @@ pub async fn save_image_chunk(data: Vec<u8>, suffix: String, _app_handle: tauri:
     std::fs::create_dir_all(&temp_dir)
         .map_err(|e| format!("Cannot create temp directory: {}", e))?;
     
-    let file_path = temp_dir.join(format!("chunk_{}_{}.png", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), suffix));
+    // Auto-detect format from magic bytes so JPEG chunks get the correct extension
+    let ext = if data.len() >= 2 && data[0] == 0xFF && data[1] == 0xD8 { "jpg" } else { "png" };
+    let file_path = temp_dir.join(format!("chunk_{}_{}.{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), suffix, ext));
     
     let mut file = File::create(&file_path)
         .map_err(|e| format!("Cannot create img file: {}", e))?;
@@ -343,6 +345,7 @@ pub async fn export_fast_video(
 
     let mut args = vec![
         "-y".to_string(),
+        "-threads".to_string(), "0".to_string(), // Use all CPU cores
         "-i".to_string(), video_path,
     ];
 
@@ -403,7 +406,7 @@ pub async fn export_fast_video(
         ],
         _ => vec![
             "-c:v".into(), "libx264".into(),
-            "-preset".into(), "fast".into(),
+            "-preset".into(), "veryfast".into(), // ~1.5× faster than "fast", same CRF quality
             "-crf".into(), "23".into(),
         ],
     };
@@ -422,7 +425,7 @@ pub async fn export_fast_video(
 
     let mut child = std::process::Command::new(find_ffmpeg())
         .args(&args)
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("FFmpeg execution failed: {}", e))?;
@@ -430,10 +433,16 @@ pub async fn export_fast_video(
     let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
     let reader = BufReader::new(stderr);
 
-    // Read stderr line by line for progress
-    for line in reader.split(b'\r') { // FFmpeg often uses \r for progress
+    let mut collected_stderr: Vec<String> = Vec::new();
+
+    // Read stderr line by line for progress (FFmpeg uses \r for progress lines)
+    for line in reader.split(b'\r') {
         if let Ok(bytes) = line {
-            let s = String::from_utf8_lossy(&bytes);
+            let s = String::from_utf8_lossy(&bytes).to_string();
+            // Collect all lines for error reporting
+            if !s.trim().is_empty() {
+                collected_stderr.push(s.clone());
+            }
             if let Some(time_pos) = s.find("time=") {
                 let time_part = &s[time_pos + 5..];
                 if let Some(space_pos) = time_part.find(' ') {
@@ -461,7 +470,16 @@ pub async fn export_fast_video(
     let status = child.wait().map_err(|e| format!("FFmpeg failed to exit: {}", e))?;
 
     if !status.success() {
-        return Err("Export failed. Please check FFmpeg logs.".to_string());
+        // Return the last 20 lines of stderr so the user sees the real error
+        let tail: Vec<&String> = collected_stderr.iter()
+            .filter(|l| !l.contains("time=") && !l.starts_with("frame="))
+            .collect();
+        let relevant: String = tail.iter().rev().take(20).rev()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(format!("FFmpeg error:\n{}", relevant));
     }
 
     let _ = app_handle.emit("export-progress", ProxyProgress {
