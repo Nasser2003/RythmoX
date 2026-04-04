@@ -17,7 +17,9 @@ pub struct Dialogue {
     pub text: String,
     pub symbols: Vec<RythmoSymbol>,
     pub font_family: String,
-    pub font_size: f64,
+    pub bold: bool,
+    pub underline: bool,
+    pub crossed: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -58,6 +60,14 @@ impl Default for BandSettings {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Marker {
+    pub id: String,
+    pub time: f64,
+    pub label: String,
+    pub color: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Project {
     pub version: String,
     pub name: String,
@@ -66,6 +76,7 @@ pub struct Project {
     pub video: Option<VideoInfo>,
     pub characters: Vec<Character>,
     pub dialogues: Vec<Dialogue>,
+    pub markers: Vec<Marker>,
     pub settings: BandSettings,
 }
 
@@ -79,6 +90,7 @@ impl Default for Project {
             video: None,
             characters: vec![],
             dialogues: vec![],
+            markers: vec![],
             settings: BandSettings::default(),
         }
     }
@@ -118,7 +130,24 @@ pub async fn load_project(file_path: String) -> Result<Project, String> {
         .map_err(|e| format!("Failed to read project file: {}", e))?;
     
     let project: Project = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse project file: {}", e))?;
+        .map_err(|e| {
+            let msg = e.to_string();
+            // Serde messages look like "missing field `bold` at line X column Y"
+            // or "unknown field `font_size`, expected one of ...".
+            // Strip the noisy "at line X column Y" suffix and simplify.
+            let core = if let Some(pos) = msg.find(" at line ") {
+                msg[..pos].to_string()
+            } else {
+                msg
+            };
+            if core.contains("missing field") {
+                format!("Incompatible project format: {core}.\nThis project may have been created with an older version of RythmoX.")
+            } else if core.contains("unknown field") {
+                format!("Incompatible project format: {core}.\nThis project may have been created with a newer version of RythmoX.")
+            } else {
+                format!("Failed to load project: {core}")
+            }
+        })?;
     
     Ok(project)
 }

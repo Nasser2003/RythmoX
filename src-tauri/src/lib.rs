@@ -2,6 +2,7 @@ mod commands;
 
 use commands::ffmpeg;
 use commands::project;
+use commands::subtitles;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -23,6 +24,11 @@ pub fn run() {
             project::save_project,
             project::load_project,
             project::new_project,
+            // Subtitle import/export
+            subtitles::import_srt,
+            subtitles::export_srt,
+            subtitles::import_ass,
+            subtitles::export_ass,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

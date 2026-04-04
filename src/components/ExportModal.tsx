@@ -64,9 +64,8 @@ const drawBande = (
 
         if (d.text && blockWidth > 20) {
           ctx.fillStyle = '#ffffff';
-          const explicitFontSize = d.font_size ? (d.font_size * scale) : 0;
-          const fontSize = explicitFontSize || Math.min(blockH - (8 * scale), 22 * scale);
-          ctx.font = `500 ${fontSize}px ${d.font_family || 'sans-serif'}`;
+          const fontSize = Math.min(blockH - (8 * scale), 22 * scale);
+          ctx.font = `${d.bold ? 'bold' : '500'} ${fontSize}px ${d.font_family || 'sans-serif'}`;
           ctx.textBaseline = 'middle';
           ctx.textAlign = 'left';
 
@@ -79,6 +78,8 @@ const drawBande = (
           const targetWidth = Math.max(1, blockWidth - 16);
           if (textWidth > 0) ctx.scale(targetWidth / textWidth, 1);
           ctx.fillText(d.text, 0, 0);
+          if (d.underline) ctx.fillRect(0, fontSize * 0.2, textWidth, Math.max(1, fontSize * 0.08));
+          if (d.crossed) ctx.fillRect(0, -fontSize * 0.35, textWidth, Math.max(1, fontSize * 0.08));
           ctx.restore();
         }
       });
@@ -201,7 +202,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       ctx.fillStyle = '#94a3b8';
       ctx.font = '50px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Video Preview', videoWidth / 2, videoHeight / 2);
+      ctx.fillText('Video preview', videoWidth / 2, videoHeight / 2);
     }
 
     // 2. Translate to bottom to overlay Bande Rythmo
@@ -261,7 +262,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   const startExport = async () => {
     if (!project.video?.original_path) {
-      setError("No video imported.");
+      setError('No video imported.');
       return;
     }
 
@@ -274,7 +275,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     if (!outputPath) return;
 
     setIsExporting(true);
-    setStage('Rendering Bande Rythmo Overlay...');
+    setStage('Rendering Bande Rythmo overlay...');
     setProgress(0);
 
     const canvas = canvasRef.current;
@@ -293,7 +294,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       const chunkPaths: string[] = [];
 
       setProgress(5);
-      setStage(`Generating timeline strip (${numChunks} bloc${numChunks > 1 ? 's' : ''})...`);
+setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : ''})...`);
 
       for (let c = 0; c < numChunks; c++) {
         const startTime = c * chunkDuration;
@@ -374,7 +375,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       }
 
       setProgress(45);
-      setStage('Compositing in FFmpeg (Fast Mode)...');
+      setStage('Compositing in FFmpeg (fast mode)...');
 
       await invoke('export_fast_video', {
         videoPath: project.video.original_path,
@@ -406,7 +407,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
         {!isExporting && !error && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <p style={{ margin: 0, opacity: 0.8, fontSize: '14px' }}>Ajustez l'apparence de la bande avant l'encodage FFmpeg.</p>
+            <p style={{ margin: 0, opacity: 0.8, fontSize: '14px' }}>Adjust the strip appearance before FFmpeg encoding.</p>
             
             {/* Preview Box */}
             <div style={{
@@ -427,7 +428,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
               <div>
                 <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', marginBottom: '8px', fontWeight: '500' }}>
-                  <span>Echelle de la bande (Zoom Vertical)</span>
+                  <span>Strip Scale (Vertical Zoom)</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <input
                       type="number"
@@ -449,7 +450,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               
               <div>
                 <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', marginBottom: '8px', fontWeight: '500' }}>
-                  <span>Vitesse de défilement (Zoom Horizontal)</span>
+                  <span>Scroll speed (Horizontal Zoom)</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <input
                       type="number"
@@ -472,10 +473,10 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
             <div>
               <label style={{ display: 'block', fontSize: '13px', marginBottom: '8px', fontWeight: '500' }}>
-                Accélération matérielle (GPU)
+                Hardware Acceleration (GPU)
               </label>
               {availableGpus === null ? (
-                <div style={{ fontSize: '12px', opacity: 0.5, padding: '8px 0' }}>Détection du matériel...</div>
+                <div style={{ fontSize: '12px', opacity: 0.5, padding: '8px 0' }}>Detecting hardware...</div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
                   {([
@@ -490,7 +491,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                         key={opt.value}
                         onClick={() => isAvailable && setGpu(opt.value)}
                         disabled={!isAvailable}
-                        title={isAvailable ? undefined : 'Non disponible sur ce système'}
+                        title={isAvailable ? undefined : 'Not available on this system'}
                         style={{
                           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
                           padding: '8px 4px', borderRadius: '6px', cursor: isAvailable ? 'pointer' : 'not-allowed',
@@ -505,7 +506,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                         }}
                       >
                         <span style={{ fontWeight: '600' }}>{opt.label}</span>
-                        <span style={{ opacity: 0.6, fontSize: '10px' }}>{isAvailable ? opt.desc : 'indisponible'}</span>
+                        <span style={{ opacity: 0.6, fontSize: '10px' }}>{isAvailable ? opt.desc : 'unavailable'}</span>
                       </button>
                     );
                   })}
@@ -514,8 +515,8 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             </div>
 
             <div style={{ marginTop: '10px', display: 'flex', gap: '12px' }}>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={startExport}>Lancer l'Export final</button>
-              <button className="btn btn-ghost" onClick={onClose}>Annuler</button>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={startExport}>Start Final Export</button>
+              <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
             </div>
           </div>
         )}
@@ -526,7 +527,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             <div style={{ width: '100%', backgroundColor: 'rgba(255,255,255,0.1)', height: '12px', borderRadius: '6px', overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' }}>
               <div style={{ width: `${progress}%`, backgroundColor: '#4ade80', height: '100%', transition: 'width 0.3s ease-out', boxShadow: '0 0 10px rgba(74, 222, 128, 0.5)' }} />
             </div>
-            <p style={{ marginTop: '10px', fontSize: '12px', opacity: 0.6 }}>{Math.round(progress)}% complété</p>
+            <p style={{ marginTop: '10px', fontSize: '12px', opacity: 0.6 }}>{Math.round(progress)}% complete</p>
           </div>
         )}
 
@@ -534,7 +535,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <div style={{ padding: '10px', border: '1px solid #ef4444', borderRadius: '8px', backgroundColor: 'rgba(239, 68, 68, 0.1)' }}>
             <h4 style={{ color: '#ef4444', marginTop: 0 }}>Export Failed</h4>
             <p style={{ color: '#f87171', fontSize: '12px', wordBreak: 'break-all' }}>{error}</p>
-            <button className="btn btn-ghost" onClick={onClose} style={{ marginTop: '10px' }}>Fermer</button>
+            <button className="btn btn-ghost" onClick={onClose} style={{ marginTop: '10px' }}>Close</button>
           </div>
         )}
 

@@ -28,7 +28,7 @@ const MarkerManager: React.FC = () => {
   return (
     <div className="character-manager glass-card" style={{ display: 'flex', flexDirection: 'column', padding: '16px', gap: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3 style={{ margin: 0, fontSize: '14px', color: '#e2e8f0' }}>Scene Markers</h3>
+        <h3 style={{ margin: 0, fontSize: '14px', color: '#e2e8f0' }}>Markers</h3>
         <button
           onClick={() => addMarker(currentTime)}
           style={{ backgroundColor: '#fbbf24', color: '#000', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}

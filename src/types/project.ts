@@ -13,7 +13,9 @@ export interface Dialogue {
   text: string;
   symbols: RythmoSymbol[];
   font_family: string;
-  font_size: number;
+  bold: boolean;
+  underline: boolean;
+  crossed: boolean;
 }
 
 export interface Character {

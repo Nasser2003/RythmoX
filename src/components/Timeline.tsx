@@ -236,8 +236,9 @@ const TimelineDialogueBlock = ({
           y="28" // Approx vertical center / baseline depending on block height (40px)
           fill="#e2e8f0"
           fontFamily={dialogue.font_family || 'sans-serif'}
-          fontSize={dialogue.font_size || 12}
-          fontWeight="500"
+          fontSize={12}
+          fontWeight={dialogue.bold ? 'bold' : '500'}
+          style={{ textDecoration: [dialogue.underline && 'underline', dialogue.crossed && 'line-through'].filter(Boolean).join(' ') || 'none' }}
           textLength={Math.max(1, blockWidth - 20)}
           lengthAdjust="spacingAndGlyphs"
         >

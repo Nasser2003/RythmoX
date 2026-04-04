@@ -8,6 +8,7 @@ import TransportControls from './components/TransportControls';
 import Timeline from './components/Timeline';
 import DialogueEditor from './components/DialogueEditor';
 import ExportModal from './components/ExportModal';
+import SubtitleIOModal from './components/SubtitleIOModal';
 import CharacterManager from './components/CharacterManager';
 import MarkerManager from './components/MarkerManager';
 import './App.css';
@@ -20,6 +21,8 @@ function App() {
     isLoading,
     loadingMessage,
     ffmpegAvailable,
+    errorMessage,
+    clearError,
     newProject,
     saveProject,
     saveProjectAs,
@@ -36,6 +39,8 @@ function App() {
   }, [checkFfmpeg]);
 
   const [isExporting, setIsExporting] = useState(false);
+  const [subtitleModal, setSubtitleModal] = useState<'import' | 'export' | null>(null);
+  const [droppedSubtitlePath, setDroppedSubtitlePath] = useState<string | undefined>(undefined);
 
   // Handle Drag & Drop of video files
   useEffect(() => {
@@ -52,10 +57,14 @@ function App() {
           const file = paths[0];
           const ext = file.split('.').pop()?.toLowerCase();
           const videoExts = ['mp4', 'mov', 'mkv', 'avi', 'wmv', 'flv', 'webm', 'mxf', 'prores'];
+          const subtitleExts = ['srt', 'ass'];
           if (ext === 'rythmox') {
             loadProject(file);
           } else if (ext && videoExts.includes(ext)) {
             importVideo(file);
+          } else if (ext && subtitleExts.includes(ext)) {
+            setDroppedSubtitlePath(file);
+            setSubtitleModal('import');
           }
         }
       });
@@ -134,6 +143,20 @@ function App() {
 
   return (
     <div className="app" id="app-root">
+      {/* Error banner */}
+      {errorMessage && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
+          background: 'rgba(239,68,68,0.95)', color: '#fff',
+          padding: '12px 20px', display: 'flex', alignItems: 'flex-start', gap: '12px',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)',
+        }}>
+          <span style={{ fontSize: '18px', lineHeight: 1 }}>⚠</span>
+          <pre style={{ margin: 0, flex: 1, fontSize: '13px', fontFamily: 'inherit', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{errorMessage}</pre>
+          <button onClick={clearError} style={{ background: 'none', border: '1px solid rgba(255,255,255,0.5)', color: '#fff', borderRadius: '4px', padding: '2px 10px', cursor: 'pointer', fontSize: '13px', flexShrink: 0 }}>Dismiss</button>
+        </div>
+      )}
+
       {/* Loading overlay */}
       {isLoading && (
         <div className="loading-overlay" id="loading-overlay">
@@ -168,8 +191,15 @@ function App() {
             <button className="menu-btn accent" onClick={() => importVideo()} title="Import Video" id="menu-import">
               📁 Import Video
             </button>
-            <button className="menu-btn" onClick={() => setIsExporting(true)} title="Export Video" id="menu-export" style={{ marginLeft: '10px', backgroundColor: 'rgba(74, 222, 128, 0.2)', color: '#4ade80' }}>
-              🎬 Export Final
+            <span className="menu-divider" />
+            <button className="menu-btn" onClick={() => setSubtitleModal('import')} title="Import SRT / ASS" id="menu-import-sub" style={{ color: '#93c5fd' }}>
+              📥 Import Subtitles
+            </button>
+            <button className="menu-btn" onClick={() => setSubtitleModal('export')} title="Export SRT / ASS" id="menu-export-sub" style={{ color: '#93c5fd' }}>
+              📤 Export Subtitles
+            </button>
+            <button className="menu-btn" onClick={() => setIsExporting(true)} title="Export final video" id="menu-export" style={{ marginLeft: '10px', backgroundColor: 'rgba(74, 222, 128, 0.2)', color: '#4ade80' }}>
+              🎥 Export Video
             </button>
           </div>
         </div>
@@ -186,7 +216,7 @@ function App() {
         <div className="top-bar-right">
           {!ffmpegAvailable && (
             <span className="ffmpeg-warning" title="FFmpeg not found — proxy creation disabled">
-              ⚠ FFmpeg
+              ⚠ FFmpeg missing
             </span>
           )}
         </div>
@@ -210,6 +240,7 @@ function App() {
       </div>
       
       {isExporting && <ExportModal onClose={() => setIsExporting(false)} />}
+      {subtitleModal && <SubtitleIOModal mode={subtitleModal} initialFilePath={droppedSubtitlePath} onClose={() => { setSubtitleModal(null); setDroppedSubtitlePath(undefined); }} />}
     </div>
   );
 }

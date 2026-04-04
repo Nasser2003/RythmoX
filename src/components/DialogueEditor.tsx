@@ -37,7 +37,9 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
       text: '', // Start empty, user types right away!
       symbols: [],
       font_family: settings.font_family,
-      font_size: settings.font_size,
+      bold: false,
+      underline: false,
+      crossed: false,
     });
   }, [characters, dialogues, settings, addDialogue]);
 

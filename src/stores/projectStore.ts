@@ -19,6 +19,7 @@ interface ProjectState {
   loadingMessage: string;
   ffmpegAvailable: boolean;
   hoveredTime: number | null;
+  errorMessage: string | null;
 
   // Actions - Project
   newProject: () => void;
@@ -26,6 +27,7 @@ interface ProjectState {
   saveProjectAs: () => Promise<void>;
   loadProject: (filePath?: string) => Promise<void>;
   setProjectName: (name: string) => void;
+  clearError: () => void;
 
   // Actions - Video
   importVideo: (filePath?: string) => Promise<void>;
@@ -56,6 +58,10 @@ interface ProjectState {
 
   // Actions - System
   checkFfmpeg: () => Promise<void>;
+
+  // Actions - Subtitle import/export
+  importSubtitles: (filePath: string, extractRole: boolean) => Promise<void>;
+  exportSubtitles: (format: 'srt' | 'ass', outputPath: string, includeRole: boolean, includeMarkers: boolean) => Promise<void>;
 
   // Actions - Timeline
   setHoveredTime: (time: number | null) => void;
@@ -89,6 +95,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   loadingMessage: '',
   ffmpegAvailable: false,
   hoveredTime: null,
+  errorMessage: null,
 
   // -- Project actions --
   newProject: () => {
@@ -116,7 +123,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       await invoke('save_project', { project, filePath: projectPath });
       set({ isDirty: false });
     } catch (e) {
-      console.error('Save failed:', e);
+      set({ errorMessage: String(e) });
     }
   },
 
@@ -131,7 +138,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await invoke('save_project', { project, filePath: path });
         set({ projectPath: path, isDirty: false });
       } catch (e) {
-        console.error('Save failed:', e);
+        set({ errorMessage: String(e) });
       }
     }
   },
@@ -150,38 +157,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (path) {
       try {
         set({ isLoading: true, loadingMessage: 'Loading project...' });
-        const loadedProject = await invoke<Project>('load_project', { filePath: path });
-
-        // Backwards compatibility for older project files
-        const project = {
-          ...loadedProject,
-          markers: loadedProject.markers || [],
-          characters: (loadedProject.characters || []).map(c => ({
-            ...c,
-            // Prevent legacy colors from breaking transparency suffix rules by stripping alpha channels
-            color: (c.color && c.color.length > 7) ? c.color.substring(0, 7) : c.color
-          }))
-        };
+        const project = await invoke<Project>('load_project', { filePath: path });
 
         let videoUrl: string | null = null;
         if (project.video?.proxy_path) {
           videoUrl = convertFileSrc(project.video.proxy_path);
         } else if (project.video?.original_path) {
           videoUrl = convertFileSrc(project.video.original_path);
-        }
-
-        // Generate waveform if missing on legacy project load
-        if (project.video && !project.video.waveform && get().ffmpegAvailable) {
-           try {
-             set({ loadingMessage: 'Extracting audio waveform...' });
-             const waveform = await invoke<number[]>('extract_audio_waveform', {
-               videoPath: project.video.original_path,
-               peaksPerSecond: 100
-             });
-             project.video.waveform = waveform;
-           } catch (err) {
-             console.warn('Waveform extraction failed during load:', err);
-           }
         }
 
         set({
@@ -195,8 +177,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           isLoading: false,
         });
       } catch (e) {
-        console.error('Load failed:', e);
-        set({ isLoading: false });
+        set({ errorMessage: String(e), isLoading: false });
       }
     }
   },
@@ -207,6 +188,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       isDirty: true,
     }));
   },
+
+  clearError: () => set({ errorMessage: null }),
 
   // -- Video actions --
   importVideo: async (filePath?: string) => {
@@ -460,4 +443,124 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   setHoveredTime: (time) => set({ hoveredTime: time }),
+
+  importSubtitles: async (filePath: string, extractRole: boolean) => {
+    const path = filePath;
+    const ext = path.split('.').pop()?.toLowerCase();
+    type SubEntry = { index: number; start: number; end: number; text: string; actor?: string; style?: string };
+    type SubStyles = { name: string; font_family: string; font_size: number; color: string }[];
+    type SubMarkers = { time: number; label: string }[];
+    let result: { entries: SubEntry[]; styles: SubStyles; markers: SubMarkers };
+
+    try {
+      if (ext === 'ass') {
+        result = await invoke('import_ass', { filePath: path, extractRole });
+      } else {
+        result = await invoke('import_srt', { filePath: path, extractRole });
+      }
+    } catch (e) {
+      console.error('Import subtitles failed', e);
+      return;
+    }
+
+    const { project } = get();
+
+    // Build a character map: style/actor name → existing or new character
+    const charMap = new Map<string, string>(); // name → id
+    project.characters.forEach(c => charMap.set(c.name, c.id));
+
+    const newCharacters = [...project.characters];
+    const newDialogues: Dialogue[] = [];
+
+    // Create a pseudo-style lookup for font info
+    const styleMap = new Map<string, { font_family: string; font_size: number; color: string }>();
+    result.styles.forEach((s) => styleMap.set(s.name, s));
+
+    for (const e of result.entries) {
+      const actorName = e.actor || e.style || (extractRole ? 'Inconnu' : 'Défaut');
+      if (!charMap.has(actorName)) {
+        const colors = ['#E63946','#457B9D','#2A9D8F','#E9C46A','#F4A261','#E76F51','#6A4C93','#8AC926'];
+        const newChar: Character = {
+          id: generateId(),
+          name: actorName,
+          color: colors[newCharacters.length % colors.length],
+        };
+        newCharacters.push(newChar);
+        charMap.set(actorName, newChar.id);
+      }
+      const charId = charMap.get(actorName)!;
+      const styleInfo = e.style ? styleMap.get(e.style) : undefined;
+      newDialogues.push({
+        id: generateId(),
+        character_id: charId,
+        start_time: e.start,
+        end_time: e.end,
+        text: e.text,
+        symbols: [],
+        font_family: styleInfo?.font_family || project.settings.font_family,
+        bold: false,
+        underline: false,
+        crossed: false,
+      });
+    }
+
+    set((state) => ({
+      project: {
+        ...state.project,
+        characters: newCharacters,
+        dialogues: [...state.project.dialogues, ...newDialogues],
+        markers: extractRole
+          ? [
+              ...state.project.markers,
+              ...result.markers.map(m => ({
+                id: generateId(),
+                time: m.time,
+                label: m.label,
+                color: '#fbbf24',
+              })),
+            ]
+          : state.project.markers,
+      },
+      isDirty: true,
+    }));
+  },
+
+  exportSubtitles: async (format: 'srt' | 'ass', outputPath: string, includeRole: boolean, includeMarkers: boolean) => {
+    const { project } = get();
+
+    // Build entries sorted by start time
+    const charById = new Map(project.characters.map(c => [c.id, c]));
+    const entries = [...project.dialogues]
+      .sort((a, b) => a.start_time - b.start_time)
+      .map((d, i) => ({
+        index: i + 1,
+        start: d.start_time,
+        end: d.end_time,
+        text: d.text,
+        actor: charById.get(d.character_id)?.name ?? null,
+        style: charById.get(d.character_id)?.name ?? null,
+      }));
+
+    const markers = project.markers.map(m => ({ time: m.time, label: m.label }));
+
+    if (format === 'ass') {
+      const styles = project.characters.map(c => ({
+        name: c.name,
+        font_family: c.name, // per-char style name = char name
+        font_size: project.settings.font_size,
+        color: c.color,
+      }));
+      await invoke('export_ass', {
+        entries,
+        styles,
+        markers,
+        outputPath,
+        title: project.name,
+        includeRole,
+        includeMarkers,
+      });
+    } else {
+      await invoke('export_srt', { entries, markers, outputPath, includeRole, includeMarkers });
+    }
+  },
 }));
