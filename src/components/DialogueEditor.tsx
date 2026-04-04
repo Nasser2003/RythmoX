@@ -36,7 +36,6 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
       start_time: start,
       end_time: start + 2.0, // Default duration
       text: '', // Start empty, user types right away!
-      detection: '',
       symbols: [],
       font_family: settings.font_family,
       font_size: settings.font_size,
@@ -153,17 +152,6 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
             {/* Advanced Settings Popup inline */}
             {openSettingsId === d.id && (
               <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '11px', color: '#94a3b8' }}>Detection (Lip Sync)</label>
-                  <input
-                    type="text"
-                    value={d.detection}
-                    onChange={(e) => updateDialogue(d.id, { detection: e.target.value })}
-                    style={{ backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '12px', padding: '4px', borderRadius: '4px' }}
-                    placeholder="e.g. MBP..."
-                  />
-                </div>
-
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <label style={{ fontSize: '11px', color: '#94a3b8' }}>Font</label>
@@ -172,7 +160,7 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
                       onChange={(e) => updateDialogue(d.id, { font_family: e.target.value })}
                       style={{ backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '12px', padding: '4px', borderRadius: '4px' }}
                     >
-                      {DEFAULT_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+                      {DEFAULT_FONTS.map((f) => <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>)}
                     </select>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

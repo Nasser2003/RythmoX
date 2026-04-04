@@ -1,5 +1,6 @@
 use std::fs::File;
-use std::io::{Write, Read};
+use std::io::{Write, Read, BufReader, BufRead};
+use std::process::Stdio;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::{command, Emitter};
@@ -332,6 +333,7 @@ pub async fn export_fast_video(
     track_offset_x: f64,
     overlay_width: u32,
     overlay_height: u32,
+    gpu: Option<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     let _ = app_handle.emit("export-progress", ProxyProgress {
@@ -380,26 +382,86 @@ pub async fn export_fast_video(
     
     filter.push_str(&format!("[0:v][{}]overlay=x=0:y=H-{}:shortest=1[out]", final_strip_label, overlay_height));
 
+    // Select video codec + encoder settings based on requested GPU acceleration
+    let codec_args: Vec<String> = match gpu.as_deref().unwrap_or("none") {
+        "nvenc" => vec![
+            "-c:v".into(), "h264_nvenc".into(),
+            "-preset".into(), "p4".into(),
+            "-rc".into(), "vbr".into(),
+            "-cq".into(), "23".into(),
+        ],
+        "qsv" => vec![
+            "-c:v".into(), "h264_qsv".into(),
+            "-global_quality".into(), "23".into(),
+            "-preset".into(), "medium".into(),
+        ],
+        "amf" => vec![
+            "-c:v".into(), "h264_amf".into(),
+            "-quality".into(), "balanced".into(),
+            "-qp_i".into(), "22".into(),
+            "-qp_p".into(), "24".into(),
+        ],
+        _ => vec![
+            "-c:v".into(), "libx264".into(),
+            "-preset".into(), "fast".into(),
+            "-crf".into(), "23".into(),
+        ],
+    };
+
     args.extend(vec![
         "-filter_complex".to_string(), filter,
         "-map".to_string(), "[out]".to_string(),
-        "-map".to_string(), "0:a?".to_string(), // Copy audio if it exists
-        "-c:v".to_string(), "libx264".to_string(),
-        "-preset".to_string(), "fast".to_string(),
-        "-crf".to_string(), "23".to_string(),
+        "-map".to_string(), "0:a?".to_string(),
+    ]);
+    args.extend(codec_args);
+    args.extend(vec![
         "-c:a".to_string(), "aac".to_string(),
         "-b:a".to_string(), "192k".to_string(),
-        output_path.clone()
+        output_path.clone(),
     ]);
 
-    let output = std::process::Command::new(find_ffmpeg())
+    let mut child = std::process::Command::new(find_ffmpeg())
         .args(&args)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("FFmpeg execution failed: {}", e))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Export failed: {}", stderr));
+    let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
+    let reader = BufReader::new(stderr);
+
+    // Read stderr line by line for progress
+    for line in reader.split(b'\r') { // FFmpeg often uses \r for progress
+        if let Ok(bytes) = line {
+            let s = String::from_utf8_lossy(&bytes);
+            if let Some(time_pos) = s.find("time=") {
+                let time_part = &s[time_pos + 5..];
+                if let Some(space_pos) = time_part.find(' ') {
+                    let time_str = &time_part[..space_pos];
+                    // Parse HH:MM:SS.ms
+                    let parts: Vec<&str> = time_str.split(':').collect();
+                    if parts.len() == 3 {
+                        let h: f64 = parts[0].parse().unwrap_or(0.0);
+                        let m: f64 = parts[1].parse().unwrap_or(0.0);
+                        let s_parts: Vec<&str> = parts[2].split('.').collect();
+                        let sec: f64 = s_parts[0].parse().unwrap_or(0.0);
+                        let total_sec = h * 3600.0 + m * 60.0 + sec;
+                        
+                        let percent = (total_sec / duration * 100.0).min(100.0);
+                        let _ = app_handle.emit("export-progress", ProxyProgress {
+                            percent,
+                            stage: format!("Encodage... ({:.1}%)", percent),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("FFmpeg failed to exit: {}", e))?;
+
+    if !status.success() {
+        return Err("Export failed. Please check FFmpeg logs.".to_string());
     }
 
     let _ = app_handle.emit("export-progress", ProxyProgress {
@@ -416,3 +478,39 @@ pub async fn export_fast_video(
     Ok(output_path)
 }
 
+/// Probe which hardware video encoders are actually usable on this machine.
+/// Tries a tiny dummy encode with each encoder; returns a list of working encoder keys.
+/// "none" (CPU/libx264) is always included first.
+#[command]
+pub async fn detect_gpu_encoders() -> Result<Vec<String>, String> {
+    let ffmpeg = find_ffmpeg();
+    let mut available: Vec<String> = vec!["none".to_string()];
+
+    let candidates = [
+        ("nvenc", "h264_nvenc"),
+        ("qsv",   "h264_qsv"),
+        ("amf",   "h264_amf"),
+    ];
+
+    for (key, encoder) in &candidates {
+        // Attempt a minimal dummy encode: 1 frame, 64x64, no output file
+        let result = std::process::Command::new(&ffmpeg)
+            .args([
+                "-f", "lavfi",
+                "-i", "nullsrc=s=64x64:d=0.04",
+                "-frames:v", "1",
+                "-c:v", encoder,
+                "-f", "null",
+                "-",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
+        if result.map(|s| s.success()).unwrap_or(false) {
+            available.push(key.to_string());
+        }
+    }
+
+    Ok(available)
+}

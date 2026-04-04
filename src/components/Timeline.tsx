@@ -300,43 +300,34 @@ const TimelineAudioWaveform: React.FC<{ waveform: number[], pps: number, duratio
         if (waveform.length === 0) return;
 
         ctx.fillStyle = '#4ade80'; // Light green
-        ctx.globalAlpha = 0.6;
         ctx.beginPath();
 
         const peakWidth = pps / peaksPerSecond;
-        const waveformLen = waveform.length;
         
         // Start time mapped smoothly
         const startTime = Math.max(0, scrollLeft / pps);
         const endTime = (scrollLeft + width) / pps;
 
         const startPeak = Math.max(0, Math.floor(startTime * peaksPerSecond));
-        const endPeak = Math.min(waveformLen, Math.ceil(endTime * peaksPerSecond));
+        const endPeak = Math.min(waveform.length, Math.ceil(endTime * peaksPerSecond));
 
         if (peakWidth < 1) {
           // Heavy zoom-out: aggregate multiple peaks per screen pixel
           const peaksPerPixel = 1 / peakWidth;
-          // Sampling rate to avoid massive loops on huge durations
-          const samplingLimit = 20; 
-
           for (let px = 0; px < width; px++) {
             const peakIdxStart = Math.floor(startPeak + px * peaksPerPixel);
-            const peakIdxEnd = Math.floor(startPeak + (px + 1) * peaksPerPixel);
+            const peakIdxEnd = Math.min(waveform.length, Math.floor(startPeak + (px + 1) * peaksPerPixel));
             
-            if (peakIdxStart >= waveformLen) break;
+            if (peakIdxStart >= waveform.length) break;
             
             let maxVal = 0;
-            // Optimization: if there are too many peaks, just sample some of them
-            const peakCount = peakIdxEnd - peakIdxStart;
-            const step = Math.max(1, Math.floor(peakCount / samplingLimit));
-            
-            for (let i = peakIdxStart; i < peakIdxEnd; i += step) {
+            for (let i = peakIdxStart; i < peakIdxEnd; i++) {
               if (waveform[i] > maxVal) maxVal = waveform[i];
             }
             
             const val = maxVal / 255.0;
             const h = Math.max(1, val * height);
-            const y = (height - h) / 2; // Centered vertically
+            const y = height - h;
             ctx.rect(px, y, 1, h);
           }
         } else {
@@ -345,13 +336,11 @@ const TimelineAudioWaveform: React.FC<{ waveform: number[], pps: number, duratio
             const val = waveform[i] / 255.0;
             const pixelX = (i / peaksPerSecond) * pps - scrollLeft;
             const h = Math.max(1, val * height);
-            const y = (height - h) / 2; // Centered vertically
-            const w = Math.max(1, peakWidth - 0.5);
-            ctx.rect(pixelX, y, w, h);
+            const y = height - h;
+            ctx.rect(pixelX, y, peakWidth > 1 ? peakWidth - 0.5 : peakWidth, h);
           }
         }
         ctx.fill();
-        ctx.globalAlpha = 1.0;
       }
 
       frameId = requestAnimationFrame(draw);

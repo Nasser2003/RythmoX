@@ -11,7 +11,6 @@ export interface Dialogue {
   start_time: number;
   end_time: number;
   text: string;
-  detection: string;
   symbols: RythmoSymbol[];
   font_family: string;
   font_size: number;
@@ -76,15 +75,30 @@ export const DEFAULT_SETTINGS: BandSettings = {
   show_timecodes: true,
 };
 
-export const DEFAULT_FONTS = [
-  'Inter',
-  'Roboto',
-  'Roboto Mono',
-  'Arial',
-  'Courier New',
-  'Georgia',
-  'Times New Roman',
-  'Verdana',
+export const DEFAULT_FONTS: { label: string; value: string }[] = [
+  // Sans-serif
+  { label: 'Inter',             value: 'Inter' },
+  { label: 'Arial',             value: 'Arial' },
+  { label: 'Verdana',           value: 'Verdana' },
+  { label: 'Trebuchet MS',      value: 'Trebuchet MS' },
+  { label: 'Segoe UI',          value: 'Segoe UI' },
+  // Serif
+  { label: 'Georgia',           value: 'Georgia' },
+  { label: 'Times New Roman',   value: 'Times New Roman' },
+  { label: 'Palatino',          value: 'Palatino Linotype' },
+  // Monospace
+  { label: 'Courier New',       value: 'Courier New' },
+  { label: 'Roboto Mono',       value: 'Roboto Mono' },
+  { label: 'Consolas',          value: 'Consolas' },
+  { label: 'Lucida Console',    value: 'Lucida Console' },
+  // Handwriting / Cursive
+  { label: 'Segoe Script',      value: 'Segoe Script' },
+  { label: 'Comic Sans MS',     value: 'Comic Sans MS' },
+  { label: 'Brush Script MT',   value: 'Brush Script MT' },
+  { label: 'Lucida Handwriting',value: 'Lucida Handwriting' },
+  // Display
+  { label: 'Impact',            value: 'Impact' },
+  { label: 'Arial Black',       value: 'Arial Black' },
 ];
 
 export const RYTHMO_SYMBOLS: { type: RythmoSymbol['symbol_type']; label: string; icon: string }[] = [

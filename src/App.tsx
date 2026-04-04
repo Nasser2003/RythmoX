@@ -164,15 +164,9 @@ function App() {
             <button className="menu-btn" onClick={saveProjectAs} title="Save As (Ctrl+Shift+S)" id="menu-save-as">
               Save As
             </button>
-            <button className="menu-btn" onClick={() => useProjectStore.getState().exportSrt()} title="Export SRT Subtitles" id="menu-export-srt">
-              Export SRT
-            </button>
             <span className="menu-divider" />
             <button className="menu-btn accent" onClick={() => importVideo()} title="Import Video" id="menu-import">
               📁 Import Video
-            </button>
-            <button className="menu-btn" onClick={() => useProjectStore.getState().importSrt()} title="Import SRT Subtitles" id="menu-import-srt">
-              📥 Import SRT
             </button>
             <button className="menu-btn" onClick={() => setIsExporting(true)} title="Export Video" id="menu-export" style={{ marginLeft: '10px', backgroundColor: 'rgba(74, 222, 128, 0.2)', color: '#4ade80' }}>
               🎬 Export Final

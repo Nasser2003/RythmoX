@@ -15,7 +15,6 @@ pub struct Dialogue {
     pub start_time: f64,
     pub end_time: f64,
     pub text: String,
-    pub detection: String,
     pub symbols: Vec<RythmoSymbol>,
     pub font_family: String,
     pub font_size: f64,
