@@ -43,7 +43,13 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
   // Double click on timeline block: also focus the text input
   useEffect(() => {
     if (!editingDialogueId) return;
-    setTimeout(() => inputRefs.current[editingDialogueId]?.focus(), 50);
+    setTimeout(() => {
+      const input = inputRefs.current[editingDialogueId];
+      if (!input) return;
+      input.focus();
+      const textLength = input.value.length;
+      input.setSelectionRange(textLength, textLength);
+    }, 50);
   }, [editingDialogueId]);
 
   useEffect(() => {

@@ -207,6 +207,26 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           selectedDialogueId: null,
           isLoading: false,
         });
+
+        if (project.video?.original_path && get().ffmpegAvailable && (!project.video.waveform || project.video.waveform.length === 0)) {
+          set({ loadingMessage: 'Extracting audio waveform...' });
+          try {
+            const waveform = await invoke<number[]>('extract_audio_waveform', {
+              videoPath: project.video.original_path,
+              peaksPerSecond: 100,
+            });
+
+            set((state) => ({
+              project: state.project.video?.original_path === project.video?.original_path
+                ? { ...state.project, video: { ...state.project.video!, waveform } }
+                : state.project,
+              loadingMessage: '',
+            }));
+          } catch (e) {
+            console.warn('Waveform extraction failed after project load', e);
+            set({ loadingMessage: '' });
+          }
+        }
       } catch (e) {
         set({ errorMessage: String(e), isLoading: false });
       }

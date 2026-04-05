@@ -403,7 +403,7 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
   const [laneSelection, setLaneSelection] = useState<{ charId: string; startTime: number; endTime: number } | null>(null);
   const laneSelectionRef = useRef<{ charId: string; startTime: number; endTime: number } | null>(null);
   laneSelectionRef.current = laneSelection;
-  const laneDragRef = useRef<{ charId: string; startX: number; startTime: number; pointerId: number } | null>(null);
+  const laneDragRef = useRef<{ charId: string; startX: number; startTime: number; pointerId: number; hadSelection: boolean } | null>(null);
 
   const clientXToTime = useCallback((clientX: number) => {
     const container = containerRef.current;
@@ -418,7 +418,13 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
     e.nativeEvent.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const t = clientXToTime(e.clientX);
-    laneDragRef.current = { charId, startX: e.clientX, startTime: t, pointerId: e.pointerId };
+    laneDragRef.current = {
+      charId,
+      startX: e.clientX,
+      startTime: t,
+      pointerId: e.pointerId,
+      hadSelection: laneSelectionRef.current !== null,
+    };
     setLaneSelection({ charId, startTime: t, endTime: t });
   }, [clientXToTime]);
 
@@ -435,10 +441,26 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
     const dx = Math.abs(e.clientX - drag.startX);
     laneDragRef.current = null;
 
+    const clearSelections = () => {
+      useProjectStore.setState({
+        selectedDialogueId: null,
+        selectedDialogueIds: [],
+        editingDialogueId: null,
+        selectedMarkerIds: [],
+        editingMarkerId: null,
+      });
+    };
+
     if (dx < 8) {
+      if (drag.hadSelection) {
+        setLaneSelection(null);
+        clearSelections();
+        useProjectStore.getState().selectCharacter(charId);
+        return;
+      }
       setLaneSelection(null);
-      const st = useProjectStore.getState();
-      st.selectCharacter(st.selectedCharacterId === charId ? null : charId);
+      clearSelections();
+      useProjectStore.getState().selectCharacter(charId);
       return;
     }
 
@@ -474,7 +496,6 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
           store.selectDialogue(contained[0].id);
           contained.slice(1).forEach(d => store.toggleDialogueSelection(d.id));
         }
-        setLaneSelection(null);
       }
     }
   }, []);
@@ -772,9 +793,9 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
           <div key={char.id} className="timeline-lane" style={{ position: 'relative', height: '60px', borderBottom: '1px solid rgba(255,255,255,0.05)', backgroundColor: isCharSelected ? `${char.color}10` : 'transparent', cursor: 'default' }}>
             <div
               className="lane-header"
-              onClick={() => selectCharacter(isCharSelected ? null : char.id)}
+              onClick={() => selectCharacter(char.id)}
               style={{ position: 'sticky', left: 0, width: `${TRACK_OFFSET}px`, height: '100%', backgroundColor: isCharSelected ? `${char.color}22` : '#0f0f1e', zIndex: 30, padding: '0 8px', display: 'flex', alignItems: 'center', borderRight: `2px solid ${char.color}`, borderBottom: '1px solid rgba(255,255,255,0.02)', cursor: 'pointer', userSelect: 'none', transition: 'background-color 0.15s' }}
-              title={isCharSelected ? `Deselect layer ${char.name}` : `Select layer ${char.name} (default for new dialogues)`}
+              title={isCharSelected ? `Layer ${char.name} selected` : `Select layer ${char.name} (default for new dialogues)`}
             >
               <span style={{ color: isCharSelected ? '#fff' : '#cbd5e1', fontSize: '11px', fontWeight: isCharSelected ? 'bold' : 'normal', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{char.name}</span>
               {isCharSelected && <span style={{ marginLeft: '4px', fontSize: '8px', color: char.color, flexShrink: 0 }}>●</span>}
