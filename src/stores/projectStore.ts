@@ -91,10 +91,44 @@ interface ProjectState {
   setHoveredTime: (time: number | null) => void;
   clearFontPreview: () => void;
   updateViewState: (updates: Partial<ViewState>) => void;
+
+  // Actions - Undo / Redo
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 function generateId(): string {
   return crypto.randomUUID();
+}
+
+// -- Undo / Redo history --
+const MAX_UNDO = 60;
+const undoStack: Project[] = [];
+const redoStack: Project[] = [];
+
+function pushUndo(project: Project) {
+  undoStack.push(JSON.parse(JSON.stringify(project)));
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  redoStack.length = 0; // clear redo on new action
+}
+
+/** Call before any project mutation inside the store */
+function recordUndo(get: () => ProjectState, set: (partial: Partial<ProjectState>) => void) {
+  pushUndo(get().project);
+  set({ canUndo: true, canRedo: false });
+}
+
+/** Debounced variant: only records if > 400ms since last call (for high-frequency updates like dragging) */
+let lastRecordTime = 0;
+function recordUndoDebounced(get: () => ProjectState, set: (partial: Partial<ProjectState>) => void) {
+  const now = Date.now();
+  if (now - lastRecordTime > 400) {
+    pushUndo(get().project);
+    set({ canUndo: true, canRedo: false });
+  }
+  lastRecordTime = now;
 }
 
 const emptyProject: Project = {
@@ -130,6 +164,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   ffmpegAvailable: false,
   hoveredTime: null,
   errorMessage: null,
+  canUndo: false,
+  canRedo: false,
 
   // -- Project actions --
   newProject: () => {
@@ -365,6 +401,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   toggleAutoAddOnSelect: () => set((state) => ({ autoAddOnSelect: !state.autoAddOnSelect })),
 
   addCharacter: (name) => {
+    recordUndo(get, set);
     const { project } = get();
     const colorIndex = project.characters.length % CHARACTER_COLORS.length;
     const character: Character = {
@@ -382,6 +419,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   updateCharacter: (id, updates) => {
+    recordUndo(get, set);
     set((state) => ({
       project: {
         ...state.project,
@@ -394,6 +432,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   deleteCharacter: (id) => {
+    recordUndo(get, set);
     set((state) => ({
       project: {
         ...state.project,
@@ -405,6 +444,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   reorderCharacters: (fromIndex, toIndex) => {
+    recordUndo(get, set);
     set((state) => {
       const chars = [...state.project.characters];
       const [moved] = chars.splice(fromIndex, 1);
@@ -415,6 +455,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   // -- Dialogue actions --
   addDialogue: (dialogueData) => {
+    recordUndo(get, set);
     const { project } = get();
     // Pick the best matching style: per-role > global > none
     const roleStyle = project.default_dialogue_style_by_role?.[dialogueData.character_id];
@@ -463,6 +504,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   updateDialogue: (id, updates) => {
+    recordUndoDebounced(get, set);
     set((state) => ({
       ...(updates.font_family !== undefined ? { fontPreviewDialogueId: id } : {}),
       project: {
@@ -490,6 +532,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setDefaultDialogueStyle: (dialogueId) => {
     const d = get().project.dialogues.find((x) => x.id === dialogueId);
     if (!d) return;
+    recordUndo(get, set);
     const style: DialogueStyle = { font_family: d.font_family, bold: d.bold, italic: d.italic, underline: d.underline, crossed: d.crossed };
     set((state) => ({
       project: {
@@ -506,6 +549,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setDefaultDialogueStyleForRole: (dialogueId) => {
     const d = get().project.dialogues.find((x) => x.id === dialogueId);
     if (!d) return;
+    recordUndo(get, set);
     const style: DialogueStyle = { font_family: d.font_family, bold: d.bold, italic: d.italic, underline: d.underline, crossed: d.crossed };
     set((state) => ({
       project: {
@@ -520,6 +564,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   deleteDialogue: (id) => {
+    recordUndo(get, set);
     set((state) => ({
       project: {
         ...state.project,
@@ -532,6 +577,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   deleteSelected: () => {
+    recordUndo(get, set);
     const { selectedDialogueIds, selectedMarkerIds } = get();
     set((state) => ({
       project: {
@@ -587,6 +633,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   requestDialogueEdit: (id) => set({ selectedDialogueId: id, selectedDialogueIds: [id], editingDialogueId: id, selectedMarkerIds: [], editingMarkerId: null }),
 
   splitDialogue: (id, atTime) => {
+    recordUndo(get, set);
     const { project } = get();
     const d = project.dialogues.find((x) => x.id === id);
     if (!d) return;
@@ -633,6 +680,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   fuseDialogues: () => {
+    recordUndo(get, set);
     const { project, selectedDialogueIds } = get();
     if (selectedDialogueIds.length !== 2) return;
     const pair = selectedDialogueIds
@@ -680,6 +728,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   addMarker: (time) => {
+    recordUndo(get, set);
     set((state) => ({
       project: {
         ...state.project,
@@ -695,6 +744,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   updateMarker: (id, updates) => {
+    recordUndoDebounced(get, set);
     set((state) => ({
       project: {
         ...state.project,
@@ -707,6 +757,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   deleteMarker: (id) => {
+    recordUndo(get, set);
     set((state) => ({
       project: {
         ...state.project,
@@ -748,6 +799,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   // -- Settings actions --
   updateSettings: (updates) => {
+    recordUndoDebounced(get, set);
     set((state) => ({
       project: {
         ...state.project,
@@ -777,6 +829,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     },
   })),
 
+  undo: () => {
+    if (undoStack.length === 0) return;
+    const current = get().project;
+    redoStack.push(JSON.parse(JSON.stringify(current)));
+    const prev = undoStack.pop()!;
+    set({ project: prev, isDirty: true, canUndo: undoStack.length > 0, canRedo: true });
+  },
+
+  redo: () => {
+    if (redoStack.length === 0) return;
+    const current = get().project;
+    undoStack.push(JSON.parse(JSON.stringify(current)));
+    const next = redoStack.pop()!;
+    set({ project: next, isDirty: true, canUndo: true, canRedo: redoStack.length > 0 });
+  },
+
   importSubtitles: async (filePath: string, extractRole: boolean) => {
     const path = filePath;
     const ext = path.split('.').pop()?.toLowerCase();
@@ -797,6 +865,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
 
     const { project } = get();
+    recordUndo(get, set);
 
     // Build a character map: style/actor name → existing or new character
     const charMap = new Map<string, string>(); // name → id

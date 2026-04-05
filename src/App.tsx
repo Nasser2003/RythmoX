@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useVideoSync } from './hooks/useVideoSync';
 import { useProjectStore } from './stores/projectStore';
@@ -31,6 +31,10 @@ function App() {
     checkFfmpeg,
     setProjectName,
     addMarker,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   } = useProjectStore();
 
   // Check FFmpeg on mount
@@ -153,6 +157,24 @@ function App() {
             newProject();
           }
           break;
+        case 'z':
+          if (e.ctrlKey && !e.shiftKey) {
+            e.preventDefault();
+            undo();
+          }
+          break;
+        case 'y':
+          if (e.ctrlKey) {
+            e.preventDefault();
+            redo();
+          }
+          break;
+        case 'Z':
+          if (e.ctrlKey && e.shiftKey) {
+            e.preventDefault();
+            redo();
+          }
+          break;
         case 'm':
           // Add marker at hovered timeline placement or playback head
           e.preventDefault();
@@ -217,7 +239,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [videoSync, saveProject, saveProjectAs, loadProject, newProject, addMarker]);
+  }, [videoSync, saveProject, saveProjectAs, loadProject, newProject, addMarker, undo, redo]);
 
   return (
     <div className="app" id="app-root">
@@ -252,34 +274,12 @@ function App() {
             <span className="logo-icon">🎬</span>
             <span className="logo-text">RythmoX</span>
           </div>
-          <div className="menu-buttons">
-            <button className="menu-btn" onClick={newProject} title="New Project (Ctrl+N)" id="menu-new">
-              New
-            </button>
-            <button className="menu-btn" onClick={() => loadProject()} title="Open Project (Ctrl+O)" id="menu-open">
-              Open
-            </button>
-            <button className="menu-btn" onClick={saveProject} title="Save (Ctrl+S)" id="menu-save">
-              Save
-            </button>
-            <button className="menu-btn" onClick={saveProjectAs} title="Save As (Ctrl+Shift+S)" id="menu-save-as">
-              Save As
-            </button>
-            <span className="menu-divider" />
-            <button className="menu-btn accent" onClick={() => importVideo()} title="Import Video" id="menu-import">
-              📁 Import Video
-            </button>
-            <span className="menu-divider" />
-            <button className="menu-btn" onClick={() => setSubtitleModal('import')} title="Import SRT / ASS" id="menu-import-sub" style={{ color: '#93c5fd' }}>
-              📥 Import Subtitles
-            </button>
-            <button className="menu-btn" onClick={() => setSubtitleModal('export')} title="Export SRT / ASS" id="menu-export-sub" style={{ color: '#93c5fd' }}>
-              📤 Export Subtitles
-            </button>
-            <button className="menu-btn" onClick={() => { videoSync.pause(); setIsExporting(true); }} title="Export final video" id="menu-export" style={{ marginLeft: '10px', backgroundColor: 'rgba(74, 222, 128, 0.2)', color: '#4ade80' }}>
-              🎥 Export Video
-            </button>
-          </div>
+          <MenuBar
+            videoSync={videoSync}
+            onImportSubtitles={() => setSubtitleModal('import')}
+            onExportSubtitles={() => setSubtitleModal('export')}
+            onExportVideo={() => { videoSync.pause(); setIsExporting(true); }}
+          />
         </div>
         <div className="top-bar-center">
           <input
@@ -320,6 +320,125 @@ function App() {
       {isExporting && <ExportModal onClose={() => { setIsExporting(false); }} />}
       {subtitleModal && <SubtitleIOModal mode={subtitleModal} initialFilePath={droppedSubtitlePath} onClose={() => { setSubtitleModal(null); setDroppedSubtitlePath(undefined); }} />}
     </div>
+  );
+}
+
+/* ---- Menu Bar with dropdown sections ---- */
+
+interface MenuDropdownProps {
+  label: string;
+  children: React.ReactNode;
+}
+
+function MenuDropdown({ label, children }: MenuDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeEvent = () => setOpen(false);
+    window.addEventListener('rythmox:close-transient-menus', closeEvent);
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('pointerdown', handleClick, { capture: true });
+    return () => {
+      window.removeEventListener('rythmox:close-transient-menus', closeEvent);
+      window.removeEventListener('pointerdown', handleClick, { capture: true });
+    };
+  }, [open]);
+
+  return (
+    <div className="menu-dropdown" ref={ref}>
+      <button className={`menu-dropdown-trigger${open ? ' active' : ''}`} onClick={() => setOpen(!open)}>
+        {label}
+      </button>
+      {open && (
+        <div className="menu-dropdown-panel" onClick={() => setOpen(false)}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuSep() {
+  return <div className="menu-dropdown-sep" />;
+}
+
+interface MenuItemProps {
+  label: string;
+  shortcut?: string;
+  onClick: () => void;
+  disabled?: boolean;
+  accent?: string;
+}
+
+function MenuItem({ label, shortcut, onClick, disabled, accent }: MenuItemProps) {
+  return (
+    <button
+      className="menu-dropdown-item"
+      onClick={onClick}
+      disabled={disabled}
+      style={accent ? { color: accent } : undefined}
+    >
+      <span>{label}</span>
+      {shortcut && <span className="menu-shortcut">{shortcut}</span>}
+    </button>
+  );
+}
+
+interface MenuBarProps {
+  videoSync: ReturnType<typeof useVideoSync>;
+  onImportSubtitles: () => void;
+  onExportSubtitles: () => void;
+  onExportVideo: () => void;
+}
+
+function MenuBar({ videoSync, onImportSubtitles, onExportSubtitles, onExportVideo }: MenuBarProps) {
+  const {
+    newProject, saveProject, saveProjectAs, loadProject, importVideo,
+    undo, redo, canUndo, canRedo,
+    addMarker, currentTime, hoveredTime,
+  } = useProjectStore();
+
+  const handleAddMarker = useCallback(() => {
+    const t = hoveredTime !== null ? hoveredTime : currentTime;
+    addMarker(t);
+  }, [hoveredTime, currentTime, addMarker]);
+
+  return (
+    <nav className="menu-bar">
+      <MenuDropdown label="File">
+        <MenuItem label="New Project" shortcut="Ctrl+N" onClick={newProject} />
+        <MenuItem label="Open…" shortcut="Ctrl+O" onClick={() => loadProject()} />
+        <MenuSep />
+        <MenuItem label="Save" shortcut="Ctrl+S" onClick={saveProject} />
+        <MenuItem label="Save As…" shortcut="Ctrl+Shift+S" onClick={saveProjectAs} />
+        <MenuSep />
+        <MenuItem label="Import Video…" onClick={() => importVideo()} />
+      </MenuDropdown>
+
+      <MenuDropdown label="Edit">
+        <MenuItem label="Undo" shortcut="Ctrl+Z" onClick={undo} disabled={!canUndo} />
+        <MenuItem label="Redo" shortcut="Ctrl+Y" onClick={redo} disabled={!canRedo} />
+        <MenuSep />
+        <MenuItem label="Delete Selection" shortcut="Del" onClick={() => useProjectStore.getState().deleteSelected()} />
+        <MenuItem label="Split Dialogue" shortcut="X" onClick={() => { const s = useProjectStore.getState(); if (s.selectedDialogueId) s.splitDialogue(s.selectedDialogueId, s.currentTime); }} />
+        <MenuItem label="Fuse Dialogues" shortcut="F" onClick={() => useProjectStore.getState().fuseDialogues()} />
+        <MenuSep />
+        <MenuItem label="Add Marker" shortcut="M" onClick={handleAddMarker} />
+      </MenuDropdown>
+
+      <MenuDropdown label="Subtitles">
+        <MenuItem label="Import SRT / ASS…" onClick={onImportSubtitles} />
+        <MenuItem label="Export SRT / ASS…" onClick={onExportSubtitles} />
+      </MenuDropdown>
+
+      <button className="menu-export-btn" onClick={onExportVideo}>
+        🎥 Export
+      </button>
+    </nav>
   );
 }
 
