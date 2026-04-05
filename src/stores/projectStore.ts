@@ -61,6 +61,7 @@ interface ProjectState {
   deleteSelected: () => void;
   selectDialogue: (id: string | null) => void;
   toggleDialogueSelection: (id: string) => void;
+  selectLayerDialogues: (charId: string, addToSelection: boolean) => void;
   splitDialogue: (id: string, atTime: number) => void;
   fuseDialogues: () => void;
   requestDialogueEdit: (id: string) => void;
@@ -566,6 +567,21 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } else {
       set({ selectedDialogueIds: [...selectedDialogueIds, id] });
     }
+  },
+
+  selectLayerDialogues: (charId, addToSelection) => {
+    const { project, selectedDialogueIds } = get();
+    const layerIds = project.dialogues.filter(d => d.character_id === charId).map(d => d.id);
+    if (layerIds.length === 0) return;
+    const newIds = addToSelection
+      ? [...new Set([...selectedDialogueIds, ...layerIds])]
+      : layerIds;
+    set({
+      selectedDialogueIds: newIds,
+      selectedDialogueId: newIds[0] ?? null,
+      editingDialogueId: null,
+      selectedMarkerIds: [],
+    });
   },
 
   requestDialogueEdit: (id) => set({ selectedDialogueId: id, selectedDialogueIds: [id], editingDialogueId: id, selectedMarkerIds: [], editingMarkerId: null }),

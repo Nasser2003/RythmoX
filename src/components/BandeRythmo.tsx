@@ -26,7 +26,7 @@ const BandeRythmo: React.FC = () => {
 
     // Pull immediate state without causing re-renders
     const state = useProjectStore.getState();
-    const { currentTime, selectedDialogueId, project } = state;
+    const { currentTime, selectedDialogueId, selectedDialogueIds, project } = state;
     const { settings, dialogues, characters } = project;
 
     const { width, height } = canvas;
@@ -128,7 +128,8 @@ const BandeRythmo: React.FC = () => {
 
       // Dialogue text — spread across the duration
       if (dialogue.text && dialogueWidth > 20) {
-        const isPreview = state.fontPreviewDialogueId === dialogue.id;
+        const isPreview = state.fontPreviewDialogueId === dialogue.id
+          || (state.fontPreviewDialogueId === '__group__' && selectedDialogueIds.includes(dialogue.id));
         const usedFont = isSelected && !isPreview ? `'Courier New', monospace` : (dialogue.font_family || font_family);
         const usedSize = font_size;
         ctx.fillStyle = '#e2e8f0';

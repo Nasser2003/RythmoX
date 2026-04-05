@@ -566,7 +566,7 @@ const TimelineDialogueBlock = React.memo(({
                 x={segment.x}
                 y="28"
                 fill="#e2e8f0"
-                fontFamily={isSelected && fontPreviewDialogueId !== dialogue.id ? `'Courier New', monospace` : (dialogue.font_family || 'sans-serif')}
+                fontFamily={isSelected && fontPreviewDialogueId !== dialogue.id && fontPreviewDialogueId !== '__group__' ? `'Courier New', monospace` : (dialogue.font_family || 'sans-serif')}
                 fontSize={12}
                 fontWeight={dialogue.bold ? 'bold' : '500'}
                 fontStyle={dialogue.italic ? 'italic' : 'normal'}
@@ -789,6 +789,7 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
   const selectedCharacterId = useProjectStore((s) => s.selectedCharacterId);
   const selectedMarkerIds = useProjectStore((s) => s.selectedMarkerIds);
   const selectCharacter = useProjectStore((s) => s.selectCharacter);
+  const selectLayerDialogues = useProjectStore((s) => s.selectLayerDialogues);
   const updateViewState = useProjectStore((s) => s.updateViewState);
   const { seek, getDuration } = videoSync;
   const savedViewState = project.view_state;
@@ -1285,7 +1286,10 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
           <div key={char.id} className="timeline-lane" style={{ position: 'relative', height: '60px', borderBottom: '1px solid rgba(255,255,255,0.05)', backgroundColor: isCharSelected ? `${char.color}10` : 'transparent', cursor: 'default' }}>
             <div
               className="lane-header"
-              onClick={() => selectCharacter(char.id)}
+              onClick={(e) => {
+                selectCharacter(char.id);
+                selectLayerDialogues(char.id, e.ctrlKey || e.metaKey);
+              }}
               style={{ position: 'sticky', left: 0, width: `${TRACK_OFFSET}px`, height: '100%', backgroundColor: isCharSelected ? `${char.color}22` : '#0f0f1e', zIndex: 30, padding: '0 8px', display: 'flex', alignItems: 'center', borderRight: `2px solid ${char.color}`, borderBottom: '1px solid rgba(255,255,255,0.02)', cursor: 'pointer', userSelect: 'none', transition: 'background-color 0.15s' }}
               title={isCharSelected ? `Layer ${char.name} selected` : `Select layer ${char.name} (default for new dialogues)`}
             >

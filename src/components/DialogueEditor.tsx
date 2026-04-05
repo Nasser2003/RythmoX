@@ -14,6 +14,7 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
     deleteDialogue,
     selectDialogue,
     selectedDialogueId,
+    selectedDialogueIds,
     editingDialogueId,
     selectedCharacterId,
     addDialogueVisualCut,
@@ -28,9 +29,10 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const inputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
-  // Single click on timeline block: scroll + flash only
+  // Single click on timeline block: scroll + flash only (skip when multi-selected)
   useEffect(() => {
     if (!selectedDialogueId) return;
+    if (selectedDialogueIds.length >= 2) return; // group selection: don't flash a single item
     const el = itemRefs.current[selectedDialogueId];
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -38,7 +40,7 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
       const t = setTimeout(() => setFlashId(null), 700);
       return () => clearTimeout(t);
     }
-  }, [selectedDialogueId]);
+  }, [selectedDialogueId, selectedDialogueIds.length]);
 
   // Double click on timeline block: also focus the text input
   useEffect(() => {
@@ -146,6 +148,82 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
           <span>💡</span> Add a character first to create dialogues
         </div>
       )}
+
+      {/* Multi-selection group edit panel */}
+      {selectedDialogueIds.length >= 2 && (() => {
+        const selected = dialogues.filter(d => selectedDialogueIds.includes(d.id));
+        // Detect mixed values
+        const firstFont = selected[0]?.font_family || settings.font_family;
+        const mixedFont = selected.some(d => (d.font_family || settings.font_family) !== firstFont);
+        const mixedBold = selected.some(d => !!d.bold !== !!selected[0].bold);
+        const mixedItalic = selected.some(d => !!d.italic !== !!selected[0].italic);
+        const mixedUnderline = selected.some(d => !!d.underline !== !!selected[0].underline);
+        const mixedCrossed = selected.some(d => !!d.crossed !== !!selected[0].crossed);
+
+        const applyAll = (updates: Partial<typeof selected[0]>) => {
+          selectedDialogueIds.forEach(id => updateDialogue(id, updates as any));
+        };
+
+        return (
+          <div style={{ margin: '0 10px 10px', padding: '12px', borderRadius: '8px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.3)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ fontSize: '12px', color: '#a5b4fc', fontWeight: 600 }}>
+              {selectedDialogueIds.length} dialogues selected
+            </div>
+
+            {/* Font */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '11px', color: '#94a3b8' }}>Font</label>
+              <select
+                className="dialogue-font-select"
+                value={mixedFont ? '' : firstFont}
+                onChange={(e) => {
+                  applyAll({ font_family: e.target.value });
+                  // Override so ALL selected dialogues show the preview, not just the last-updated one
+                  useProjectStore.setState({ fontPreviewDialogueId: '__group__' });
+                }}
+                onBlur={() => useProjectStore.getState().clearFontPreview()}
+                style={{ backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '12px', padding: '4px', borderRadius: '4px' }}
+              >
+                {mixedFont && <option value="">— mixed —</option>}
+                {DEFAULT_FONTS.map((f) => <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>)}
+              </select>
+            </div>
+
+            {/* Style toggles */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '11px', color: '#94a3b8' }}>Style</label>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {([
+                  { key: 'bold',      label: 'B',  title: 'Bold',          style: { fontWeight: 'bold' as const },          mixed: mixedBold,      val: !!selected[0]?.bold },
+                  { key: 'italic',    label: 'I',  title: 'Italic',        style: { fontStyle: 'italic' as const },         mixed: mixedItalic,    val: !!selected[0]?.italic },
+                  { key: 'underline', label: 'U',  title: 'Underline',     style: { textDecoration: 'underline' as const }, mixed: mixedUnderline, val: !!selected[0]?.underline },
+                  { key: 'crossed',   label: 'S',  title: 'Strikethrough', style: { textDecoration: 'line-through' as const }, mixed: mixedCrossed, val: !!selected[0]?.crossed },
+                ] as const).map(({ key, label, title, style, mixed, val }) => {
+                  const active = !mixed && val;
+                  return (
+                    <button
+                      key={key}
+                      title={mixed ? `${title} (mixed)` : title}
+                      onClick={() => applyAll({ [key]: !val } as any)}
+                      style={{
+                        width: '28px', height: '28px', borderRadius: '4px',
+                        border: mixed ? '1px dashed rgba(255,255,255,0.3)' : active ? '1px solid rgba(255,255,255,0.6)' : '1px solid rgba(255,255,255,0.15)',
+                        background: active ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.2)',
+                        color: mixed ? '#64748b' : active ? '#fff' : '#94a3b8',
+                        cursor: 'pointer', fontSize: '13px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        ...style,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Dialogue list inline editing */}
       <div ref={listRef} className="dialogue-list" style={{ gap: '8px', padding: '10px' }}>
