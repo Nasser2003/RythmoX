@@ -421,7 +421,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const unlisten = listen<{ percent: number, stage: string }>('export-progress', (event) => {
       const { percent, stage: stageMsg } = event.payload;
       setStage(stageMsg);
-      const mapped = 45 + (percent * 0.55);
+      const mapped = 10 + (percent * 0.90);
       setProgress(mapped);
     });
 
@@ -463,7 +463,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       const numChunks = Math.ceil(duration / chunkDuration);
       const chunkPaths: string[] = [];
 
-      setProgress(5);
+      setProgress(2);
 setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : ''})...`);
 
       for (let c = 0; c < numChunks; c++) {
@@ -489,7 +489,7 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
           const path = await invoke<string>('save_image_chunk', { data: Array.from(new Uint8Array(arrayBuffer)), suffix: c.toString() });
           chunkPaths.push(path);
         }
-        setProgress(5 + ((c + 1) / numChunks) * 35);
+        setProgress(2 + ((c + 1) / numChunks) * 6);
       }
 
       setStage('Generating UI overlay...');
@@ -545,7 +545,7 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
         uiPath = await invoke<string>('save_image_chunk', { data: Array.from(new Uint8Array(arrayBuffer)), suffix: 'ui' });
       }
 
-      setProgress(45);
+      setProgress(10);
       setStage('Compositing in FFmpeg (fast mode)...');
 
       await invoke('export_fast_video', {

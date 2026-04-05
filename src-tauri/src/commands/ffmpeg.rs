@@ -458,11 +458,30 @@ pub async fn export_fast_video(
                         let s_parts: Vec<&str> = parts[2].split('.').collect();
                         let sec: f64 = s_parts[0].parse().unwrap_or(0.0);
                         let total_sec = h * 3600.0 + m * 60.0 + sec;
-                        
                         let percent = (total_sec / duration * 100.0).min(100.0);
+
+                        // Parse size= field (FFmpeg reports in kB)
+                        let size_mb = if let Some(size_pos) = s.find("size=") {
+                            let size_part = s[size_pos + 5..].trim_start();
+                            let size_str = size_part.split_whitespace().next().unwrap_or("0");
+                            let kb: f64 = size_str.trim_end_matches("kB").parse().unwrap_or(0.0);
+                            kb / 1024.0
+                        } else {
+                            0.0
+                        };
+
+                        let stage_msg = if size_mb > 0.1 && percent > 0.5 {
+                            let estimated_total_mb = size_mb / (percent / 100.0);
+                            format!("Encoding... ({:.1} MB / ~{:.0} MB)", size_mb, estimated_total_mb)
+                        } else if size_mb > 0.1 {
+                            format!("Encoding... ({:.1} MB)", size_mb)
+                        } else {
+                            "Encoding...".to_string()
+                        };
+
                         let _ = app_handle.emit("export-progress", ProxyProgress {
                             percent,
-                            stage: format!("Encodage... ({:.1}%)", percent),
+                            stage: stage_msg,
                         });
                     }
                 }
