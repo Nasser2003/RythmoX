@@ -400,6 +400,7 @@ function MenuBar({ videoSync, onImportSubtitles, onExportSubtitles, onExportVide
     newProject, saveProject, saveProjectAs, loadProject, importVideo,
     undo, redo, canUndo, canRedo,
     addMarker, currentTime, hoveredTime,
+    recentProjects, clearRecentProjects,
   } = useProjectStore();
 
   const handleAddMarker = useCallback(() => {
@@ -417,6 +418,20 @@ function MenuBar({ videoSync, onImportSubtitles, onExportSubtitles, onExportVide
         <MenuItem label="Save As…" shortcut="Ctrl+Shift+S" onClick={saveProjectAs} />
         <MenuSep />
         <MenuItem label="Import Video…" onClick={() => importVideo()} />
+        {recentProjects.length > 0 && (
+          <>
+            <MenuSep />
+            <div className="menu-dropdown-label">Recent Projects</div>
+            {recentProjects.map((r) => (
+              <MenuItem
+                key={r.path}
+                label={r.name}
+                onClick={() => loadProject(r.path)}
+              />
+            ))}
+            <MenuItem label="Clear Recent" onClick={clearRecentProjects} accent="#64748b" />
+          </>
+        )}
       </MenuDropdown>
 
       <MenuDropdown label="Edit">

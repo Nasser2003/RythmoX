@@ -93,6 +93,10 @@ interface ProjectState {
   updateViewState: (updates: Partial<ViewState>) => void;
   updateExportSettings: (updates: Partial<ExportSettings>) => void;
 
+  // Recent projects
+  recentProjects: { path: string; name: string }[];
+  clearRecentProjects: () => void;
+
   // Actions - Undo / Redo
   undo: () => void;
   redo: () => void;
@@ -132,6 +136,25 @@ function recordUndoDebounced(get: () => ProjectState, set: (partial: Partial<Pro
   lastRecordTime = now;
 }
 
+// -- Recent projects (localStorage) --
+const MAX_RECENT = 10;
+const RECENT_KEY = 'rythmox_recent_projects';
+
+function loadRecent(): { path: string; name: string }[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function pushRecent(path: string, name: string) {
+  const list = loadRecent().filter(r => r.path !== path);
+  list.unshift({ path, name });
+  if (list.length > MAX_RECENT) list.length = MAX_RECENT;
+  localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  return list;
+}
+
 const emptyProject: Project = {
   version: '1.0',
   name: 'New Project',
@@ -167,6 +190,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   errorMessage: null,
   canUndo: false,
   canRedo: false,
+  recentProjects: loadRecent(),
 
   // -- Project actions --
   newProject: () => {
@@ -198,7 +222,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       const projectToSave = { ...project, view_state: { ...project.view_state, current_time: currentTime, timeline_zoom: project.view_state?.timeline_zoom ?? 150, timeline_scroll: project.view_state?.timeline_scroll ?? 0 } };
       await invoke('save_project', { project: projectToSave, filePath: projectPath });
-      set({ isDirty: false });
+      set({ isDirty: false, recentProjects: pushRecent(projectPath, project.name) });
     } catch (e) {
       set({ errorMessage: String(e) });
     }
@@ -214,7 +238,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       try {
         const projectToSave = { ...project, view_state: { ...project.view_state, current_time: currentTime, timeline_zoom: project.view_state?.timeline_zoom ?? 150, timeline_scroll: project.view_state?.timeline_scroll ?? 0 } };
         await invoke('save_project', { project: projectToSave, filePath: path });
-        set({ projectPath: path, isDirty: false });
+        set({ projectPath: path, isDirty: false, recentProjects: pushRecent(path, project.name) });
       } catch (e) {
         set({ errorMessage: String(e) });
       }
@@ -253,6 +277,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           isPlaying: false,
           selectedDialogueId: null,
           isLoading: false,
+          recentProjects: pushRecent(path as string, project.name),
         });
 
         if (project.video?.original_path && get().ffmpegAvailable && (!project.video.waveform || project.video.waveform.length === 0)) {
@@ -823,6 +848,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   setHoveredTime: (time) => set({ hoveredTime: time }),
   clearFontPreview: () => set({ fontPreviewDialogueId: null }),
+  clearRecentProjects: () => { localStorage.removeItem(RECENT_KEY); set({ recentProjects: [] }); },
   updateViewState: (updates) => set((state) => ({
     project: {
       ...state.project,

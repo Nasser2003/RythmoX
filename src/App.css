@@ -238,6 +238,16 @@ select,
   margin: 4px 8px;
 }
 
+.menu-dropdown-label {
+  padding: 4px 14px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  pointer-events: none;
+}
+
 .menu-export-btn {
   background: rgba(74, 222, 128, 0.15);
   color: #4ade80;

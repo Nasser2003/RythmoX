@@ -2,9 +2,8 @@
 
 
 # Features to implement:
-- add start page to load recent files,...
 - fix dialog exact letter split
-
+- ~~add start page to load recent files,...~~
 - ~~improve file ui design like on most softwares (file, edit, help)~~
 - ~~implement CTRL+Z~~
 - ~~improve export progression bar calculation~~
