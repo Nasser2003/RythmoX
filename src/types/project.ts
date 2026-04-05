@@ -72,6 +72,20 @@ export interface ViewState {
   timeline_scroll: number; // scrollLeft in px
 }
 
+export interface ExportSettings {
+  scale: number;
+  pps: number;
+  opacity: number;
+  gpu: 'none' | 'nvenc' | 'qsv' | 'amf';
+}
+
+export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
+  scale: 1.0,
+  pps: 200,
+  opacity: 0.92,
+  gpu: 'none',
+};
+
 export interface Project {
   version: string;
   name: string;
@@ -83,6 +97,7 @@ export interface Project {
   markers: Marker[];
   settings: BandSettings;
   view_state?: ViewState;
+  export_settings?: ExportSettings;
   default_dialogue_style?: DialogueStyle;
   default_dialogue_style_by_role?: Record<string, DialogueStyle>;
 }

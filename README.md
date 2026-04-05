@@ -2,11 +2,11 @@
 
 
 # Features to implement:
-- implement CTRL+Z
 - add start page to load recent files,...
 - fix dialog exact letter split
-- improve file ui design like on most softwares (file, edit, help)
 
+- ~~improve file ui design like on most softwares (file, edit, help)~~
+- ~~implement CTRL+Z~~
 - ~~improve export progression bar calculation~~
 - ~~apply group settings when multiple dialogs are selected~~
 - ~~save zoom and view pos settings in project and load~~

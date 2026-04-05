@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useProjectStore } from '../stores/projectStore';
+import { DEFAULT_EXPORT_SETTINGS } from '../types/project';
 import { save } from '@tauri-apps/plugin-dialog';
 
 // Helper for translucent backgrounds
@@ -192,6 +193,7 @@ const drawBande = (
 const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const project = useProjectStore((s) => s.project);
   const videoUrl = useProjectStore((s) => s.videoUrl);
+  const updateExportSettings = useProjectStore((s) => s.updateExportSettings);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -210,10 +212,26 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [scale, setScale] = useState(1.0);
-  const [pps, setPps] = useState(200);
-  const [gpu, setGpu] = useState<'none' | 'nvenc' | 'qsv' | 'amf'>('none');
+  // Initialize from saved project export settings
+  const saved = project.export_settings;
+  const [scale, setScale] = useState(saved?.scale ?? DEFAULT_EXPORT_SETTINGS.scale);
+  const [pps, setPps] = useState(saved?.pps ?? DEFAULT_EXPORT_SETTINGS.pps);
+  const [opacity, setOpacity] = useState(saved?.opacity ?? DEFAULT_EXPORT_SETTINGS.opacity);
+  const [gpu, setGpu] = useState<'none' | 'nvenc' | 'qsv' | 'amf'>((saved?.gpu as any) ?? DEFAULT_EXPORT_SETTINGS.gpu);
   const [availableGpus, setAvailableGpus] = useState<string[] | null>(null);
+
+  // Persist changes back to project
+  useEffect(() => {
+    updateExportSettings({ scale, pps, opacity, gpu });
+  }, [scale, pps, opacity, gpu]);
+
+  const resetSettings = useCallback(() => {
+    setScale(DEFAULT_EXPORT_SETTINGS.scale);
+    setPps(DEFAULT_EXPORT_SETTINGS.pps);
+    setOpacity(DEFAULT_EXPORT_SETTINGS.opacity);
+    setGpu(DEFAULT_EXPORT_SETTINGS.gpu);
+  }, []);
+
   const trimStart = Math.max(0, Math.min(project.video?.duration || 0, project.settings.export_start || 0));
   const trimEndValue = project.settings.export_end && project.settings.export_end > 0 ? project.settings.export_end : (project.video?.duration || 0);
   const trimEnd = Math.max(trimStart + 0.1, Math.min(project.video?.duration || trimEndValue, trimEndValue));
@@ -244,12 +262,12 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   // Ref that always holds the latest drawing params — no need to restart the rAF loop when sliders change
   const previewDrawParamsRef = useRef({
-    scale, pps, project, activeCharacters, isExporting,
+    scale, pps, opacity, project, activeCharacters, isExporting,
     overlayHeight, overlayWidth, TRACK_OFFSET_X, LABEL_WIDTH,
     LANE_HEIGHT, LANE_PADDING, TOP_BORDER, trimStart, trimEnd,
   });
   previewDrawParamsRef.current = {
-    scale, pps, project, activeCharacters, isExporting,
+    scale, pps, opacity, project, activeCharacters, isExporting,
     overlayHeight, overlayWidth, TRACK_OFFSET_X, LABEL_WIDTH,
     LANE_HEIGHT, LANE_PADDING, TOP_BORDER, trimStart, trimEnd,
   };
@@ -337,7 +355,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
             ctx.translate(0, videoHeight - p.overlayHeight);
 
-            ctx.fillStyle = 'rgba(10, 12, 24, 0.92)';
+            ctx.fillStyle = `rgba(10, 12, 24, ${p.opacity})`;
             ctx.fillRect(0, 0, p.overlayWidth, p.overlayHeight);
 
             drawBande(ctx, drawTime, p.pps, p.scale, p.project, p.activeCharacters,
@@ -464,7 +482,8 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       const chunkPaths: string[] = [];
 
       setProgress(2);
-setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : ''})...`);
+      const useTransparentChunks = opacity < 1.0;
+      setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : ''})${useTransparentChunks ? ' [PNG]' : ''}...`);
 
       for (let c = 0; c < numChunks; c++) {
         const startTime = c * chunkDuration;
@@ -475,15 +494,17 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
         canvas.width = chunkWidth;
         canvas.height = overlayHeight;
         ctx.clearRect(0, 0, chunkWidth, overlayHeight);
-        // Opaque dark background so JPEG encoding works correctly
-        ctx.fillStyle = '#0a0c18';
-        ctx.fillRect(0, 0, chunkWidth, overlayHeight);
+        if (!useTransparentChunks) {
+          // Opaque dark background — JPEG is faster & smaller
+          ctx.fillStyle = '#0a0c18';
+          ctx.fillRect(0, 0, chunkWidth, overlayHeight);
+        }
 
         drawBande(ctx, sourceTime, pps, scale, project, activeCharacters, 0, chunkWidth, overlayHeight, 0, LANE_HEIGHT, LANE_PADDING, TOP_BORDER, true);
 
-        // JPEG: 5-10× faster than PNG, 3-5× smaller → much faster IPC transfer
-        // Quality 0.85 is visually identical to 0.92 for synthetic content (text/colors)
-        const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.85));
+        // JPEG when opaque (5-10× faster, 3-5× smaller), PNG when transparent (supports alpha)
+        const mimeType = useTransparentChunks ? 'image/png' : 'image/jpeg';
+        const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, mimeType, 0.85));
         if (blob) {
           const arrayBuffer = await blob.arrayBuffer();
           const path = await invoke<string>('save_image_chunk', { data: Array.from(new Uint8Array(arrayBuffer)), suffix: c.toString() });
@@ -561,6 +582,7 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
         overlayWidth,
         overlayHeight,
         gpu,
+        opacity,
       });
 
       setStage('Done!');
@@ -671,6 +693,33 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
                 </label>
                 <input type="range" min="100" max="500" step="10" value={Math.min(Math.max(pps, 100), 500)} onChange={(e) => setPps(parseInt(e.target.value))} style={rangeStyle} />
               </div>
+
+              <div>
+                <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', marginBottom: '8px', fontWeight: '500' }}>
+                  <span>Overlay Opacity</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="5"
+                      value={Math.round(opacity * 100)}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value);
+                        if (!isNaN(v) && v >= 0 && v <= 100) setOpacity(v / 100);
+                      }}
+                      style={{ width: '64px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#4ade80', fontSize: '13px', padding: '2px 6px', textAlign: 'right', outline: 'none' }}
+                    />
+                    <span style={{ color: '#4ade80', fontSize: '13px' }}>%</span>
+                  </div>
+                </label>
+                <input type="range" min="0.1" max="1.0" step="0.05" value={opacity} onChange={(e) => setOpacity(parseFloat(e.target.value))} style={rangeStyle} />
+                {opacity >= 1.0 && (
+                  <div style={{ fontSize: '11px', color: '#4ade80', opacity: 0.7, marginTop: '4px' }}>
+                    ⚡ 100% uses JPEG — faster export
+                  </div>
+                )}
+              </div>
             </div>
 
             <div>
@@ -716,9 +765,17 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
               )}
             </div>
 
-            <div style={{ marginTop: '10px', display: 'flex', gap: '12px' }}>
+            <div style={{ marginTop: '10px', display: 'flex', gap: '12px', alignItems: 'center' }}>
               <button className="btn btn-primary" onClick={startExport}>Start Final Export</button>
               <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+              <button
+                className="btn btn-ghost"
+                onClick={resetSettings}
+                title="Reset to default values"
+                style={{ marginLeft: 'auto', fontSize: '12px', opacity: 0.7 }}
+              >
+                ↺ Reset
+              </button>
             </div>
           </div>
         )}

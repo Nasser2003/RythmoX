@@ -337,6 +337,7 @@ pub async fn export_fast_video(
     overlay_width: u32,
     overlay_height: u32,
     gpu: Option<String>,
+    opacity: Option<f64>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     let _ = app_handle.emit("export-progress", ProxyProgress {
@@ -368,7 +369,8 @@ pub async fn export_fast_video(
     // [0:v] is main video
     // [1:v] to [N:v] are chunks
     // [N+1:v] is ui.png
-    let mut filter = format!("color=c=#0A0C18@0.92:s={}x{}:d={}[strip_bg];", overlay_width, overlay_height, duration);
+    let op = opacity.unwrap_or(0.92);
+    let mut filter = format!("color=c=#0A0C18@{:.2}:s={}x{}:d={}[strip_bg];", op, overlay_width, overlay_height, duration);
     let mut last_label = "strip_bg".to_string();
 
     for (i, _) in chunk_paths.iter().enumerate() {

@@ -103,6 +103,14 @@ pub struct ViewState {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ExportSettings {
+    pub scale: f64,
+    pub pps: f64,
+    pub opacity: f64,
+    pub gpu: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Project {
     pub version: String,
     pub name: String,
@@ -115,6 +123,8 @@ pub struct Project {
     pub settings: BandSettings,
     #[serde(default)]
     pub view_state: Option<ViewState>,
+    #[serde(default)]
+    pub export_settings: Option<ExportSettings>,
     #[serde(default)]
     pub default_dialogue_style: Option<DialogueStyle>,
     #[serde(default)]
@@ -134,6 +144,7 @@ impl Default for Project {
             markers: vec![],
             settings: BandSettings::default(),
             view_state: None,
+            export_settings: None,
             default_dialogue_style: None,
             default_dialogue_style_by_role: HashMap::new(),
         }

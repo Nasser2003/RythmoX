@@ -1,8 +1,8 @@
-import type { Project, Character, Dialogue, DialogueStyle, DialogueVisualCut, Marker, BandSettings, ViewState, VideoInfo, VideoMetadata } from '../types/project';
+import type { Project, Character, Dialogue, DialogueStyle, DialogueVisualCut, Marker, BandSettings, ViewState, ExportSettings, VideoInfo, VideoMetadata } from '../types/project';
 import { create } from 'zustand';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { DEFAULT_SETTINGS, CHARACTER_COLORS } from '../types/project';
+import { DEFAULT_SETTINGS, DEFAULT_EXPORT_SETTINGS, CHARACTER_COLORS } from '../types/project';
 
 interface ProjectState {
   // Project data
@@ -91,6 +91,7 @@ interface ProjectState {
   setHoveredTime: (time: number | null) => void;
   clearFontPreview: () => void;
   updateViewState: (updates: Partial<ViewState>) => void;
+  updateExportSettings: (updates: Partial<ExportSettings>) => void;
 
   // Actions - Undo / Redo
   undo: () => void;
@@ -827,6 +828,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ...state.project,
       view_state: { ...state.project.view_state, current_time: 0, timeline_zoom: 150, timeline_scroll: 0, ...updates },
     },
+  })),
+
+  updateExportSettings: (updates) => set((state) => ({
+    project: {
+      ...state.project,
+      export_settings: { ...DEFAULT_EXPORT_SETTINGS, ...state.project.export_settings, ...updates },
+    },
+    isDirty: true,
   })),
 
   undo: () => {
