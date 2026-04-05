@@ -717,7 +717,7 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
             </div>
 
             <div style={{ marginTop: '10px', display: 'flex', gap: '12px' }}>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={startExport}>Start Final Export</button>
+              <button className="btn btn-primary" onClick={startExport}>Start Final Export</button>
               <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
             </div>
           </div>
@@ -747,6 +747,10 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
           src={videoUrl || undefined}
           muted
           style={{ display: 'none' }}
+          onLoadedMetadata={() => {
+            const video = videoRef.current;
+            if (video) video.currentTime = previewTimeRef.current;
+          }}
         />
       </div>
     </div>
