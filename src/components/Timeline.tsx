@@ -63,7 +63,7 @@ const TimelineTrimHandle = ({
   );
 };
 
-const TimelineMarkerBlock = ({ m, pps, height, onUpdate }: { m: Marker, pps: number, height: number, onUpdate: (id: string, updates: Partial<Marker>) => void }) => {
+const TimelineMarkerBlock = ({ m, pps, onUpdate }: { m: Marker, pps: number, onUpdate: (id: string, updates: Partial<Marker>) => void }) => {
   const selectMarker = useProjectStore((s) => s.selectMarker);
   const toggleMarkerSelection = useProjectStore((s) => s.toggleMarkerSelection);
   const requestMarkerEdit = useProjectStore((s) => s.requestMarkerEdit);
@@ -100,8 +100,6 @@ const TimelineMarkerBlock = ({ m, pps, height, onUpdate }: { m: Marker, pps: num
       <div style={{ padding: '2px 6px', backgroundColor: m.color, color: '#000', fontSize: '8px', fontWeight: 'bold', borderRadius: '4px 4px 0 0', cursor: 'ew-resize', pointerEvents: 'auto', userSelect: 'none', boxShadow: isSelected ? `0 0 0 2px #fff, 0 -2px 5px rgba(0,0,0,0.5)` : '0 -2px 5px rgba(0,0,0,0.5)', outline: isSelected ? '2px solid white' : 'none', outlineOffset: '1px' }}>
         {m.label}
       </div>
-      {/* The vertical descending line */}
-      <div style={{ width: '2px', height: `${height}px`, backgroundColor: isSelected ? m.color : `${m.color}80`, position: 'absolute', top: '100%', zIndex: 15, pointerEvents: 'none' }} />
     </div>
   );
 };
@@ -789,6 +787,7 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
   const updateSettings = useProjectStore((s) => s.updateSettings);
   const setHoveredTime = useProjectStore((s) => s.setHoveredTime);
   const selectedCharacterId = useProjectStore((s) => s.selectedCharacterId);
+  const selectedMarkerIds = useProjectStore((s) => s.selectedMarkerIds);
   const selectCharacter = useProjectStore((s) => s.selectCharacter);
   const { seek, getDuration } = videoSync;
   const [pps, setPps] = useState(150); // pixels per second (3x default zoom)
@@ -1098,10 +1097,7 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
     return result;
   }, [duration, interval]);
 
-  const tracksHeight = useMemo(
-    () => (project.video?.waveform ? 40 : 0) + characters.length * 60 + 24,
-    [project.video?.waveform, characters.length]
-  );
+  // tracksHeight no longer needed for marker lines (they use bottom:0)
 
   return (
     <div
@@ -1139,7 +1135,7 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
         style={{ width: `${totalWidth}px`, position: 'relative', minHeight: '100%', touchAction: 'none' }}
       >
         {/* Time ruler */}
-        <div className="timeline-ruler" style={{ height: '24px', borderBottom: '1px solid #334155', position: 'sticky', top: 0, backgroundColor: 'rgba(15, 15, 25, 0.95)', zIndex: 20 }}>
+        <div className="timeline-ruler" style={{ height: '24px', borderBottom: '1px solid #334155', position: 'sticky', top: 0, backgroundColor: 'rgba(15, 15, 25, 0.95)', zIndex: 20, overflow: 'hidden' }}>
           {trimStart > 0 && (
             <div style={{ position: 'absolute', left: TRACK_OFFSET, top: 0, width: trimStart * pps, height: '100%', background: 'rgba(0,0,0,0.35)', pointerEvents: 'none', zIndex: 21 }} />
           )}
@@ -1157,7 +1153,7 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
           {/* Markers Lane inside Ruler */}
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '14px', pointerEvents: 'none', zIndex: 35 }}>
             {markers.map((m) => (
-              <TimelineMarkerBlock key={m.id} m={m} pps={pps} height={tracksHeight} onUpdate={updateMarker} />
+              <TimelineMarkerBlock key={m.id} m={m} pps={pps} onUpdate={updateMarker} />
             ))}
           </div>
           <TimelineTrimHandle time={trimStart} pps={pps} color="#fb7185" onUpdate={updateTrimStart} />
@@ -1209,6 +1205,27 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
         {trimEnd < duration && (
           <div style={{ position: 'absolute', left: trimEnd * pps + TRACK_OFFSET, top: 24, right: 0, bottom: 0, background: 'rgba(0,0,0,0.22)', pointerEvents: 'none', zIndex: 4 }} />
         )}
+
+        {/* Marker vertical lines layer — rendered here (not inside the ruler) to avoid inflating scroll height */}
+        {markers.map((m) => {
+          const isSelected = selectedMarkerIds.includes(m.id);
+          return (
+            <div
+              key={m.id}
+              style={{
+                position: 'absolute',
+                left: m.time * pps + TRACK_OFFSET,
+                top: 24,
+                bottom: 0,
+                width: '2px',
+                transform: 'translateX(-50%)',
+                backgroundColor: isSelected ? m.color : `${m.color}80`,
+                pointerEvents: 'none',
+                zIndex: 15,
+              }}
+            />
+          );
+        })}
 
         {/* Audio Waveform */}
         {project.video?.waveform && (
