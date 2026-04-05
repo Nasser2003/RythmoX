@@ -1,4 +1,4 @@
-import type { Project, Character, Dialogue, DialogueStyle, DialogueVisualCut, Marker, BandSettings, VideoInfo, VideoMetadata } from '../types/project';
+import type { Project, Character, Dialogue, DialogueStyle, DialogueVisualCut, Marker, BandSettings, ViewState, VideoInfo, VideoMetadata } from '../types/project';
 import { create } from 'zustand';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -89,6 +89,7 @@ interface ProjectState {
   // Actions - Timeline
   setHoveredTime: (time: number | null) => void;
   clearFontPreview: () => void;
+  updateViewState: (updates: Partial<ViewState>) => void;
 }
 
 function generateId(): string {
@@ -152,12 +153,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   saveProject: async () => {
-    const { project, projectPath } = get();
+    const { project, projectPath, currentTime } = get();
     if (!projectPath) {
       return get().saveProjectAs();
     }
     try {
-      await invoke('save_project', { project, filePath: projectPath });
+      const projectToSave = { ...project, view_state: { ...project.view_state, current_time: currentTime, timeline_zoom: project.view_state?.timeline_zoom ?? 150, timeline_scroll: project.view_state?.timeline_scroll ?? 0 } };
+      await invoke('save_project', { project: projectToSave, filePath: projectPath });
       set({ isDirty: false });
     } catch (e) {
       set({ errorMessage: String(e) });
@@ -165,14 +167,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   saveProjectAs: async () => {
-    const { project } = get();
+    const { project, currentTime } = get();
     const path = await save({
       title: 'Save RythmoX Project',
       filters: [{ name: 'RythmoX Project', extensions: ['rythmox'] }],
     });
     if (path) {
       try {
-        await invoke('save_project', { project, filePath: path });
+        const projectToSave = { ...project, view_state: { ...project.view_state, current_time: currentTime, timeline_zoom: project.view_state?.timeline_zoom ?? 150, timeline_scroll: project.view_state?.timeline_scroll ?? 0 } };
+        await invoke('save_project', { project: projectToSave, filePath: path });
         set({ projectPath: path, isDirty: false });
       } catch (e) {
         set({ errorMessage: String(e) });
@@ -208,7 +211,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           projectPath: path as string,
           isDirty: false,
           videoUrl,
-          currentTime: 0,
+          currentTime: project.view_state?.current_time ?? 0,
           isPlaying: false,
           selectedDialogueId: null,
           isLoading: false,
@@ -751,6 +754,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   setHoveredTime: (time) => set({ hoveredTime: time }),
   clearFontPreview: () => set({ fontPreviewDialogueId: null }),
+  updateViewState: (updates) => set((state) => ({
+    project: {
+      ...state.project,
+      view_state: { ...state.project.view_state, current_time: 0, timeline_zoom: 150, timeline_scroll: 0, ...updates },
+    },
+  })),
 
   importSubtitles: async (filePath: string, extractRole: boolean) => {
     const path = filePath;

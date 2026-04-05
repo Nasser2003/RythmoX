@@ -66,6 +66,12 @@ export interface BandSettings {
   export_end: number;
 }
 
+export interface ViewState {
+  current_time: number;
+  timeline_zoom: number;   // pixels per second
+  timeline_scroll: number; // scrollLeft in px
+}
+
 export interface Project {
   version: string;
   name: string;
@@ -76,6 +82,7 @@ export interface Project {
   dialogues: Dialogue[];
   markers: Marker[];
   settings: BandSettings;
+  view_state?: ViewState;
   default_dialogue_style?: DialogueStyle;
   default_dialogue_style_by_role?: Record<string, DialogueStyle>;
 }

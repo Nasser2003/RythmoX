@@ -96,6 +96,13 @@ pub struct Marker {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ViewState {
+    pub current_time: f64,
+    pub timeline_zoom: f64,
+    pub timeline_scroll: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Project {
     pub version: String,
     pub name: String,
@@ -106,6 +113,8 @@ pub struct Project {
     pub dialogues: Vec<Dialogue>,
     pub markers: Vec<Marker>,
     pub settings: BandSettings,
+    #[serde(default)]
+    pub view_state: Option<ViewState>,
     #[serde(default)]
     pub default_dialogue_style: Option<DialogueStyle>,
     #[serde(default)]
@@ -124,6 +133,7 @@ impl Default for Project {
             dialogues: vec![],
             markers: vec![],
             settings: BandSettings::default(),
+            view_state: None,
             default_dialogue_style: None,
             default_dialogue_style_by_role: HashMap::new(),
         }

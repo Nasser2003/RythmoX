@@ -789,9 +789,11 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
   const selectedCharacterId = useProjectStore((s) => s.selectedCharacterId);
   const selectedMarkerIds = useProjectStore((s) => s.selectedMarkerIds);
   const selectCharacter = useProjectStore((s) => s.selectCharacter);
+  const updateViewState = useProjectStore((s) => s.updateViewState);
   const { seek, getDuration } = videoSync;
-  const [pps, setPps] = useState(150); // pixels per second (3x default zoom)
-  const ppsRef = useRef(150); // mirror for synchronous read in wheel handler
+  const savedViewState = project.view_state;
+  const [pps, setPps] = useState(() => savedViewState?.timeline_zoom ?? 150);
+  const ppsRef = useRef(savedViewState?.timeline_zoom ?? 150); // mirror for synchronous read in wheel handler
   const duration = getDuration() || 60; // fallback strictly for timeline bounds
 
   const { dialogues, characters, markers } = project;
@@ -807,6 +809,28 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
     const clamped = Math.max(trimStart + MIN_EXPORT_RANGE, Math.min(duration, nextEnd));
     updateSettings({ export_end: clamped });
   }, [duration, trimStart, updateSettings]);
+
+  // Restore scroll position after first render
+  useEffect(() => {
+    const container = containerRef.current;
+    const saved = useProjectStore.getState().project.view_state;
+    if (container && saved?.timeline_scroll != null) {
+      container.scrollLeft = saved.timeline_scroll;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist pps when it changes
+  useEffect(() => {
+    updateViewState({ timeline_zoom: pps });
+  }, [pps, updateViewState]);
+
+  // Persist scroll position on scroll
+  const handleScrollPersist = useCallback(() => {
+    if (containerRef.current) {
+      updateViewState({ timeline_scroll: containerRef.current.scrollLeft });
+    }
+  }, [updateViewState]);
 
   // --- Lane drag-to-select ---
   const [laneSelection, setLaneSelection] = useState<{ charId: string; startTime: number; endTime: number } | null>(null);
@@ -1116,6 +1140,7 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
       ref={containerRef}
       id="timeline"
       onWheel={handleWheel}
+      onScroll={handleScrollPersist}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
