@@ -26,7 +26,7 @@ export interface Dialogue {
   end_time: number;
   text: string;
   symbols: RythmoSymbol[];
-  visual_cuts?: DialogueVisualCut[];
+  visual_cuts: DialogueVisualCut[];
   font_family: string;
   bold: boolean;
   underline: boolean;

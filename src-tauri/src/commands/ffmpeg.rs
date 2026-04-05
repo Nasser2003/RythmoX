@@ -21,9 +21,25 @@ pub struct ProxyProgress {
     pub stage: String,
 }
 
-/// Locate ffmpeg binary by checking PATH then common installation dirs
-fn find_ffmpeg() -> String {
-    // Common install paths on Windows
+/// Helper to get the Tauri resource directory at runtime
+fn get_resource_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    app.path().resource_dir().ok()
+}
+
+/// Locate ffmpeg binary – bundled resource first, then PATH / common install dirs
+fn find_ffmpeg(resource_dir: Option<&std::path::Path>) -> String {
+    // Check bundled resource first
+    if let Some(dir) = resource_dir {
+        let bundled = dir.join("ffmpeg.exe");
+        if bundled.exists() {
+            if std::process::Command::new(&bundled).arg("-version").output()
+                .map(|o| o.status.success()).unwrap_or(false) {
+                return bundled.to_string_lossy().to_string();
+            }
+        }
+    }
+    // Fall back to PATH and common install dirs
     let candidates = [
         "ffmpeg",
         r"C:\ffmpeg\bin\ffmpeg.exe",
@@ -32,28 +48,35 @@ fn find_ffmpeg() -> String {
         r"C:\tools\ffmpeg\bin\ffmpeg.exe",
     ];
     for path in &candidates {
-        // Use file existence check rather than spawning a process
         if *path == "ffmpeg" || Path::new(path).exists() {
-            // Verify it actually runs
             let result = std::process::Command::new(*path).arg("-version").output();
             if result.map(|o| o.status.success()).unwrap_or(false) {
                 return path.to_string();
             }
         }
     }
-    // Last resort: return first path that exists even if -version failed
     for path in &candidates[1..] {
         if Path::new(path).exists() {
             return path.to_string();
         }
     }
-    "ffmpeg".to_string() // fallback
+    "ffmpeg".to_string()
 }
 
-/// Locate ffprobe binary (same logic)
-fn find_ffprobe() -> String {
-    // Try to derive ffprobe from ffmpeg location
-    let ffmpeg = find_ffmpeg();
+/// Locate ffprobe binary (bundled resource first, then PATH / common install dirs)
+fn find_ffprobe(resource_dir: Option<&std::path::Path>) -> String {
+    // Check bundled resource first
+    if let Some(dir) = resource_dir {
+        let bundled = dir.join("ffprobe.exe");
+        if bundled.exists() {
+            if std::process::Command::new(&bundled).arg("-version").output()
+                .map(|o| o.status.success()).unwrap_or(false) {
+                return bundled.to_string_lossy().to_string();
+            }
+        }
+    }
+    // Try to derive ffprobe from the found ffmpeg path
+    let ffmpeg = find_ffmpeg(resource_dir);
     if ffmpeg != "ffmpeg" {
         let probe = ffmpeg.replace("ffmpeg.exe", "ffprobe.exe").replace("ffmpeg", "ffprobe");
         if Path::new(&probe).exists() {
@@ -77,7 +100,8 @@ fn find_ffprobe() -> String {
 
 /// Get video metadata using ffprobe
 #[command]
-pub async fn get_video_metadata(video_path: String) -> Result<VideoMetadata, String> {
+pub async fn get_video_metadata(video_path: String, app_handle: tauri::AppHandle) -> Result<VideoMetadata, String> {
+    let resource_dir = get_resource_dir(&app_handle);
     let path = Path::new(&video_path);
     if !path.exists() {
         return Err(format!("File not found: {}", video_path));
@@ -88,7 +112,7 @@ pub async fn get_video_metadata(video_path: String) -> Result<VideoMetadata, Str
         .len();
 
     // Use ffprobe to get video info
-    let output = std::process::Command::new(find_ffprobe())
+    let output = std::process::Command::new(find_ffprobe(resource_dir.as_deref()))
         .args([
             "-v", "quiet",
             "-print_format", "json",
@@ -191,7 +215,8 @@ pub async fn create_proxy(
     });
 
     // Run FFmpeg transcode
-    let output = std::process::Command::new(find_ffmpeg())
+    let resource_dir = get_resource_dir(&app_handle);
+    let output = std::process::Command::new(find_ffmpeg(resource_dir.as_deref()))
         .args([
             "-y",                        // Overwrite
             "-i", &video_path,           // Input
@@ -222,8 +247,9 @@ pub async fn create_proxy(
 
 /// Check if FFmpeg is available on the system
 #[command]
-pub async fn check_ffmpeg() -> Result<String, String> {
-    let output = std::process::Command::new(find_ffmpeg())
+pub async fn check_ffmpeg(app_handle: tauri::AppHandle) -> Result<String, String> {
+    let resource_dir = get_resource_dir(&app_handle);
+    let output = std::process::Command::new(find_ffmpeg(resource_dir.as_deref()))
         .arg("-version")
         .output()
         .map_err(|_| "FFmpeg not found. Please install FFmpeg and add it to your PATH.".to_string())?;
@@ -252,7 +278,8 @@ pub async fn extract_audio_waveform(
     let sample_rate = 8000;
     let samples_per_peak = sample_rate / peaks_per_second;
 
-    let mut command = std::process::Command::new(find_ffmpeg());
+    let resource_dir = get_resource_dir(&app_handle);
+    let mut command = std::process::Command::new(find_ffmpeg(resource_dir.as_deref()));
     command.args([
         "-i", &video_path,
         "-vn",               // No video
@@ -428,7 +455,8 @@ pub async fn export_fast_video(
         output_path.clone(),
     ]);
 
-    let mut child = std::process::Command::new(find_ffmpeg())
+    let resource_dir = get_resource_dir(&app_handle);
+    let mut child = std::process::Command::new(find_ffmpeg(resource_dir.as_deref()))
         .args(&args)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -524,8 +552,9 @@ pub async fn export_fast_video(
 /// Tries a tiny dummy encode with each encoder; returns a list of working encoder keys.
 /// "none" (CPU/libx264) is always included first.
 #[command]
-pub async fn detect_gpu_encoders() -> Result<Vec<String>, String> {
-    let ffmpeg = find_ffmpeg();
+pub async fn detect_gpu_encoders(app_handle: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let resource_dir = get_resource_dir(&app_handle);
+    let ffmpeg = find_ffmpeg(resource_dir.as_deref());
     let mut available: Vec<String> = vec!["none".to_string()];
 
     let candidates = [

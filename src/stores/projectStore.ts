@@ -495,7 +495,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       underline: style.underline ?? dialogueData.underline,
       crossed: style.crossed ?? dialogueData.crossed,
       id: generateId(),
-      visual_cuts: dialogueData.visual_cuts ?? [],
+      visual_cuts: dialogueData.visual_cuts,
     };
     set((state) => ({
       project: {
@@ -519,7 +519,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (atTime <= dialogue.start_time || atTime >= dialogue.end_time) return;
 
     const position = (atTime - dialogue.start_time) / duration;
-    const existingCuts = dialogue.visual_cuts ?? [];
+    const existingCuts = dialogue.visual_cuts;
     const minGap = 0.03;
     if (existingCuts.some((cut) => Math.abs(cut.position - position) < minGap)) return;
     const charIndex = Math.max(1, Math.min(Math.max(1, dialogue.text.length - 1), Math.round(dialogue.text.length * position)));
@@ -547,7 +547,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
                     char_index: typeof cut.char_index === 'number' ? Math.max(0, cut.char_index) : cut.char_index,
                   }))
                   .sort((a, b) => a.position - b.position)
-              : d.visual_cuts ?? [],
+              : d.visual_cuts,
           } : d))
           .sort((a, b) => a.start_time - b.start_time),
       },
@@ -672,7 +672,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const textA = rawTextA.trimEnd();
     const textB = rawTextB.trimStart();
     const removedLeadingB = rawTextB.length - textB.length;
-    const cuts = d.visual_cuts ?? [];
+    const cuts = d.visual_cuts;
     const cutsA: DialogueVisualCut[] = cuts
       .filter((cut) => (cut.char_index ?? Math.round((cut.position ?? 0) * d.text.length)) < splitChar)
       .map((cut) => ({
@@ -723,7 +723,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const fusedEnd = Math.max(priority.end_time, other.end_time);
     const fusedDuration = Math.max(0.001, fusedEnd - fusedStart);
     const fusedCuts = [earlier, later]
-      .flatMap((dialogue) => (dialogue.visual_cuts ?? []).map((cut) => ({
+      .flatMap((dialogue) => dialogue.visual_cuts.map((cut) => ({
         id: cut.id,
         position: ((dialogue.start_time - fusedStart) + cut.position * (dialogue.end_time - dialogue.start_time)) / fusedDuration,
         char_index: dialogue === earlier
@@ -934,6 +934,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         end_time: e.end,
         text: e.text,
         symbols: [],
+        visual_cuts: [],
         font_family: styleInfo?.font_family || project.settings.font_family,
         bold: false,
         underline: false,

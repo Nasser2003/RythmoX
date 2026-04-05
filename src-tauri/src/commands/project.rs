@@ -22,7 +22,6 @@ pub struct RythmoSymbol {
 pub struct DialogueVisualCut {
     pub id: String,
     pub position: f64,
-    #[serde(default)]
     pub char_index: Option<usize>,
 }
 
@@ -34,13 +33,11 @@ pub struct Dialogue {
     pub end_time: f64,
     pub text: String,
     pub symbols: Vec<RythmoSymbol>,
-    #[serde(default)]
     pub visual_cuts: Vec<DialogueVisualCut>,
     pub font_family: String,
     pub bold: bool,
     pub underline: bool,
     pub crossed: bool,
-    #[serde(default)]
     pub italic: bool,
 }
 
@@ -67,9 +64,7 @@ pub struct BandSettings {
     pub font_size: f64,
     pub font_family: String,
     pub show_timecodes: bool,
-    #[serde(default)]
     pub export_start: f64,
-    #[serde(default)]
     pub export_end: f64,
 }
 
@@ -121,11 +116,8 @@ pub struct Project {
     pub dialogues: Vec<Dialogue>,
     pub markers: Vec<Marker>,
     pub settings: BandSettings,
-    #[serde(default)]
     pub view_state: Option<ViewState>,
-    #[serde(default)]
     pub export_settings: Option<ExportSettings>,
-    #[serde(default)]
     pub default_dialogue_style: Option<DialogueStyle>,
     #[serde(default)]
     pub default_dialogue_style_by_role: HashMap<String, DialogueStyle>,
@@ -185,24 +177,7 @@ pub async fn load_project(file_path: String) -> Result<Project, String> {
         .map_err(|e| format!("Failed to read project file: {}", e))?;
     
     let project: Project = serde_json::from_str(&content)
-        .map_err(|e| {
-            let msg = e.to_string();
-            // Serde messages look like "missing field `bold` at line X column Y"
-            // or "unknown field `font_size`, expected one of ...".
-            // Strip the noisy "at line X column Y" suffix and simplify.
-            let core = if let Some(pos) = msg.find(" at line ") {
-                msg[..pos].to_string()
-            } else {
-                msg
-            };
-            if core.contains("missing field") {
-                format!("Incompatible project format: {core}.\nThis project may have been created with an older version of RythmoX.")
-            } else if core.contains("unknown field") {
-                format!("Incompatible project format: {core}.\nThis project may have been created with a newer version of RythmoX.")
-            } else {
-                format!("Failed to load project: {core}")
-            }
-        })?;
+        .map_err(|e| format!("Failed to load project: {}", e))?;
     
     Ok(project)
 }
