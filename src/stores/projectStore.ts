@@ -88,6 +88,7 @@ interface ProjectState {
 
   // Actions - Timeline
   setHoveredTime: (time: number | null) => void;
+  clearFontPreview: () => void;
 }
 
 function generateId(): string {
@@ -541,7 +542,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
-  selectDialogue: (id) => set({ selectedDialogueId: id, selectedDialogueIds: id ? [id] : [], selectedMarkerIds: [], editingMarkerId: null, editingDialogueId: null, fontPreviewDialogueId: null }),
+  selectDialogue: (id) => set((state) => ({
+    selectedDialogueId: id,
+    selectedDialogueIds: id ? [id] : [],
+    selectedMarkerIds: [],
+    editingMarkerId: null,
+    editingDialogueId: null,
+    // Preserve fontPreview when clicking inside the already-selected dialogue
+    fontPreviewDialogueId: id !== null && id === state.selectedDialogueId ? state.fontPreviewDialogueId : null,
+  })),
 
   toggleDialogueSelection: (id) => {
     const { selectedDialogueIds } = get();
@@ -741,6 +750,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   setHoveredTime: (time) => set({ hoveredTime: time }),
+  clearFontPreview: () => set({ fontPreviewDialogueId: null }),
 
   importSubtitles: async (filePath: string, extractRole: boolean) => {
     const path = filePath;

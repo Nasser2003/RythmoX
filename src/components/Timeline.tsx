@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { useProjectStore } from '../stores/projectStore';
 import { useVideoSync } from '../hooks/useVideoSync';
 import { useDrag } from '@use-gesture/react';
@@ -791,6 +791,7 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
   const selectCharacter = useProjectStore((s) => s.selectCharacter);
   const { seek, getDuration } = videoSync;
   const [pps, setPps] = useState(150); // pixels per second (3x default zoom)
+  const ppsRef = useRef(150); // mirror for synchronous read in wheel handler
   const duration = getDuration() || 60; // fallback strictly for timeline bounds
 
   const { dialogues, characters, markers } = project;
@@ -1009,7 +1010,17 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
     if (e.ctrlKey || e.altKey) {
       e.preventDefault();
       const delta = e.deltaY > 0 ? 0.8 : 1.25;
-      setPps((prev) => Math.max(5, Math.min(500, prev * delta)));
+      const container = containerRef.current;
+      const currentTime = useProjectStore.getState().currentTime;
+      const oldPps = ppsRef.current;
+      const newPps = Math.max(5, Math.min(500, oldPps * delta));
+      ppsRef.current = newPps;
+      // Flush React render synchronously so new pps layout is committed before we
+      // correct scrollLeft — this prevents the one-frame "teleport" artifact
+      flushSync(() => setPps(newPps));
+      if (container) {
+        container.scrollLeft += currentTime * (newPps - oldPps);
+      }
     }
   }, []);
 

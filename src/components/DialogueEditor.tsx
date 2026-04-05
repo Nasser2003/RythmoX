@@ -253,6 +253,7 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <label style={{ fontSize: '11px', color: '#94a3b8' }}>Font</label>
                     <select
+                      className="dialogue-font-select"
                       value={d.font_family || settings.font_family}
                       onChange={(e) => updateDialogue(d.id, { font_family: e.target.value })}
                       style={{ backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '12px', padding: '4px', borderRadius: '4px' }}
