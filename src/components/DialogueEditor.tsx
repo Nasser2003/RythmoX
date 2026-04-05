@@ -16,6 +16,7 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
     selectedDialogueId,
     editingDialogueId,
     selectedCharacterId,
+    addDialogueVisualCut,
   } = useProjectStore();
 
   const { dialogues, characters, settings } = project;
@@ -293,6 +294,53 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
                     })}
                   </div>
                 </div>
+                {/* Internal Cuts */}
+                {(() => {
+                  const cuts = [...(d.visual_cuts ?? [])].sort((a, b) => a.position - b.position);
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <label style={{ fontSize: '11px', color: '#94a3b8' }}>Internal Cuts {cuts.length > 0 && <span style={{ opacity: 0.6 }}>({cuts.length})</span>}</label>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addDialogueVisualCut(d.id, useProjectStore.getState().currentTime);
+                          }}
+                          style={{ fontSize: '11px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', color: '#94a3b8', borderRadius: '4px', padding: '2px 7px', cursor: 'pointer' }}
+                          title="Add cut at playhead"
+                        >
+                          + at playhead
+                        </button>
+                      </div>
+                      {cuts.length === 0 ? (
+                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', padding: '2px 0' }}>No cuts</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                          {cuts.map((cut, i) => {
+                            const absTime = d.start_time + cut.position * (d.end_time - d.start_time);
+                            return (
+                              <div key={cut.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.15)', borderRadius: '4px', padding: '3px 8px' }}>
+                                <span style={{ fontSize: '11px', color: '#cbd5e1' }}>Cut {i + 1} — {absTime.toFixed(2)}s</span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    updateDialogue(d.id, {
+                                      visual_cuts: (d.visual_cuts ?? []).filter(c => c.id !== cut.id),
+                                    });
+                                  }}
+                                  style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '16px', padding: '0 2px', lineHeight: 1 }}
+                                  title="Delete cut"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>

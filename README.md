@@ -2,16 +2,16 @@
 
 
 # Features to implement:
-- Implémenter un CTRL+Z
-- for this internal cut, add the list in additional settings of the dialog
 - save zoom and view pos settings in project and load
 - when scroll, based on the resd cursor pos.
 
+- Implémenter un CTRL+Z
 - add start page to load recent files,...
 - fix export progression bar to incist in file size phase (maybe even file size as indicator)
 - fix dialog exact letter split
 - improve file ui design like on most softwares (file, edit, help)
 
+- ~~for this internal cut, add the list in additional settings of the dialog~~
 - ~~add bold, underline, cross to additionnal param to dialogs~~
 - ~~internal cut in dialog + drag possible to stretch some long sylabs.~~
 - ~~fix export preview that doesn't show sometimes~~
