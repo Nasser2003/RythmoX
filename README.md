@@ -14,5 +14,5 @@
 - fix export preview that doesn't show sometimes
 - ~~in the export result, make the dialogue more filled instead of margin~~
 - fix dialog exact letter split
-- right click dialog: define as default style
-- optimise app performance + video sub resolution
+- ~~right click dialog: define as default style~~
+- ~~optimise app performance + video sub resolution~~

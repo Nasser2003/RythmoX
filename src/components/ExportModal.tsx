@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useProjectStore } from '../stores/projectStore';
@@ -11,6 +11,14 @@ const hexToRgba = (hex: string, alpha: number) => {
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
+
+function fmtTime(s: number): string {
+  if (!isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  const ms = Math.floor((s % 1) * 10);
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${ms}`;
+}
 
 // Common drawing utility for both preview and final export images
 const drawBande = (
@@ -182,12 +190,20 @@ const drawBande = (
 };
 
 const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { project, currentTime, videoUrl } = useProjectStore();
+  const project = useProjectStore((s) => s.project);
+  const videoUrl = useProjectStore((s) => s.videoUrl);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-
-  const [redrawTrigger, setRedrawTrigger] = useState(0);
+  const [previewIsPlaying, setPreviewIsPlaying] = useState(false);
+  const previewIsPlayingRef = useRef(false);
+  previewIsPlayingRef.current = previewIsPlaying;
+  const [previewCurrentTime, setPreviewCurrentTime] = useState(Math.max(0, project.settings.export_start || 0));
+  const previewCurrentTimeRef = useRef(Math.max(0, project.settings.export_start || 0));
+  const [, setPreviewDuration] = useState(0);
+  const previewDurationRef = useRef(0);
+  // Local time ref — fully independent from the store, initialized to trimStart.
+  const previewTimeRef = useRef(Math.max(0, project.settings.export_start || 0));
 
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState('Initializing...');
@@ -226,92 +242,180 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const TRACK_WIDTH = overlayWidth - LABEL_WIDTH;
   const TRACK_OFFSET_X = LABEL_WIDTH + TRACK_WIDTH / 3;
 
-  // Sync hidden video time
-  useEffect(() => {
-    if (videoRef.current) {
-      if (Math.abs(videoRef.current.currentTime - currentTime) > 0.1) {
-        videoRef.current.currentTime = currentTime;
-      }
-    }
-  }, [currentTime]);
+  // Ref that always holds the latest drawing params — no need to restart the rAF loop when sliders change
+  const previewDrawParamsRef = useRef({
+    scale, pps, project, activeCharacters, isExporting,
+    overlayHeight, overlayWidth, TRACK_OFFSET_X, LABEL_WIDTH,
+    LANE_HEIGHT, LANE_PADDING, TOP_BORDER, trimStart, trimEnd,
+  });
+  previewDrawParamsRef.current = {
+    scale, pps, project, activeCharacters, isExporting,
+    overlayHeight, overlayWidth, TRACK_OFFSET_X, LABEL_WIDTH,
+    LANE_HEIGHT, LANE_PADDING, TOP_BORDER, trimStart, trimEnd,
+  };
 
-  // Real-time Preview logic
+  // rAF-based preview loop: actually plays the hidden video in sync so drawImage always
+  // has a valid frame — fixes the 'Video preview' flash that occurred during playback
+  // because async seeks hadn't completed before the canvas was redrawn.
   useEffect(() => {
+    const video = videoRef.current;
     const canvas = previewCanvasRef.current;
-    if (!canvas || isExporting) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!video || !canvas) return;
 
-    const videoWidth = project.video?.resolution?.[0] || 1920;
-    const videoHeight = project.video?.resolution?.[1] || 1080;
+    let frameId: number;
+    let loopIsPlaying = false;
 
-    const displayW = canvas.clientWidth * 2; // high-dpi
-    const drawScale = displayW / Math.max(1, videoWidth);
-    const displayH = Math.ceil(videoHeight * drawScale);
+    const loop = () => {
+      const p = previewDrawParamsRef.current;
+      const wantsPlaying = previewIsPlayingRef.current;
 
-    canvas.width = displayW;
-    canvas.height = displayH;
+      if (!p.isExporting) {
+        // --- Sync hidden video with the preview's OWN local play state ---
+        // Never touch the main app's isPlaying — that belongs to the main video.
+        if (wantsPlaying && !loopIsPlaying) {
+          video.muted = true;
+          // Clamp start position to trim range
+          const startTime = Math.max(p.trimStart, Math.min(p.trimEnd - 0.01, previewTimeRef.current));
+          previewTimeRef.current = startTime;
+          video.currentTime = startTime;
+          video.play().catch(() => setPreviewIsPlaying(false));
+          loopIsPlaying = true;
+        } else if (!wantsPlaying && loopIsPlaying) {
+          video.pause();
+          previewTimeRef.current = video.currentTime;
+          loopIsPlaying = false;
+        }
 
-    ctx.clearRect(0, 0, displayW, displayH);
-    ctx.fillStyle = '#0A0C18';
-    ctx.fillRect(0, 0, displayW, displayH);
+        // Source-of-truth for draw time — fully local, never touches the store.
+        let drawTime: number;
+        if (loopIsPlaying) {
+          drawTime = video.currentTime;
+          previewTimeRef.current = drawTime;
+          // Auto-stop at trimEnd
+          if (drawTime >= p.trimEnd) {
+            setPreviewIsPlaying(false);
+            previewTimeRef.current = p.trimStart;
+          }
+        } else {
+          drawTime = previewTimeRef.current;
+          if (Math.abs(video.currentTime - drawTime) > 0.1) video.currentTime = drawTime;
+        }
 
-    ctx.save();
-    ctx.scale(drawScale, drawScale);
-    
-    // 1. Draw Video Frame
-    if (videoRef.current && videoRef.current.readyState >= 2) {
-      ctx.drawImage(videoRef.current, 0, 0, videoWidth, videoHeight);
-    } else {
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(0, 0, videoWidth, videoHeight);
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '50px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Video preview', videoWidth / 2, videoHeight / 2);
-    }
+        // Expose current time + duration to React state for the seek bar
+        const newDur = isFinite(video.duration) ? video.duration : 0;
+        if (newDur !== previewDurationRef.current) {
+          previewDurationRef.current = newDur;
+          setPreviewDuration(newDur);
+        }
+        const rounded = Math.round(drawTime * 10) / 10;
+        if (Math.abs(rounded - previewCurrentTimeRef.current) >= 0.1) {
+          previewCurrentTimeRef.current = rounded;
+          setPreviewCurrentTime(drawTime);
+        }
 
-    // 2. Translate to bottom to overlay Bande Rythmo
-    ctx.translate(0, videoHeight - overlayHeight);
+        // --- Draw canvas every frame when video has a decoded frame ---
+        if (video.readyState >= 2) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            const videoWidth = p.project.video?.resolution?.[0] || 1920;
+            const videoHeight = p.project.video?.resolution?.[1] || 1080;
+            const displayW = Math.max(10, canvas.clientWidth * 2);
+            const drawScale = displayW / videoWidth;
+            const displayH = Math.ceil(videoHeight * drawScale);
 
-    // Transparent strip background
-    ctx.fillStyle = 'rgba(10, 12, 24, 0.92)';
-    ctx.fillRect(0, 0, overlayWidth, overlayHeight);
+            if (canvas.width !== displayW) canvas.width = displayW;
+            if (canvas.height !== displayH) canvas.height = displayH;
 
-    // Draw dialogues at current project time
-    drawBande(ctx, currentTime, pps, scale, project, activeCharacters, TRACK_OFFSET_X, overlayWidth, overlayHeight, LABEL_WIDTH, LANE_HEIGHT, LANE_PADDING, TOP_BORDER);
+            ctx.clearRect(0, 0, displayW, displayH);
+            ctx.fillStyle = '#0A0C18';
+            ctx.fillRect(0, 0, displayW, displayH);
 
-    // UI Panel (labels background - starts below marker header strip)
-    ctx.fillStyle = '#0f121a'; 
-    ctx.fillRect(0, TOP_BORDER, LABEL_WIDTH, overlayHeight - TOP_BORDER);
+            ctx.save();
+            ctx.scale(drawScale, drawScale);
 
-    ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(LABEL_WIDTH, 0);
-    ctx.lineTo(LABEL_WIDTH, overlayHeight);
-    ctx.stroke();
+            ctx.drawImage(video, 0, 0, videoWidth, videoHeight);
 
-    // Red playhead line
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(TRACK_OFFSET_X, 0);
-    ctx.lineTo(TRACK_OFFSET_X, overlayHeight);
-    ctx.stroke();
+            ctx.translate(0, videoHeight - p.overlayHeight);
 
-    // Character labels
-    activeCharacters.forEach((char, i) => {
-      const laneY = TOP_BORDER + i * LANE_HEIGHT;
-      ctx.fillStyle = char.color;
-      ctx.font = `bold ${Math.max(10, 16 * scale)}px sans-serif`;
-      ctx.textBaseline = 'middle';
-      ctx.textAlign = 'left';
-      ctx.fillText(char.name, 8 * scale, laneY + LANE_HEIGHT / 2, LABEL_WIDTH - (16 * scale));
-    });
+            ctx.fillStyle = 'rgba(10, 12, 24, 0.92)';
+            ctx.fillRect(0, 0, p.overlayWidth, p.overlayHeight);
 
-    ctx.restore();
-  }, [scale, pps, currentTime, project, activeCharacters, isExporting, overlayHeight, overlayWidth, TRACK_OFFSET_X, LABEL_WIDTH, LANE_HEIGHT, LANE_PADDING, TOP_BORDER, redrawTrigger]);
+            drawBande(ctx, drawTime, p.pps, p.scale, p.project, p.activeCharacters,
+              p.TRACK_OFFSET_X, p.overlayWidth, p.overlayHeight, p.LABEL_WIDTH,
+              p.LANE_HEIGHT, p.LANE_PADDING, p.TOP_BORDER);
+
+            ctx.fillStyle = '#0f121a';
+            ctx.fillRect(0, p.TOP_BORDER, p.LABEL_WIDTH, p.overlayHeight - p.TOP_BORDER);
+
+            ctx.strokeStyle = '#475569';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(p.LABEL_WIDTH, 0);
+            ctx.lineTo(p.LABEL_WIDTH, p.overlayHeight);
+            ctx.stroke();
+
+            ctx.strokeStyle = '#ef4444';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(p.TRACK_OFFSET_X, 0);
+            ctx.lineTo(p.TRACK_OFFSET_X, p.overlayHeight);
+            ctx.stroke();
+
+            p.activeCharacters.forEach((char, i) => {
+              const laneY = p.TOP_BORDER + i * p.LANE_HEIGHT;
+              ctx.fillStyle = char.color;
+              ctx.font = `bold ${Math.max(10, 16 * p.scale)}px sans-serif`;
+              ctx.textBaseline = 'middle';
+              ctx.textAlign = 'left';
+              ctx.fillText(char.name, 8 * p.scale, laneY + p.LANE_HEIGHT / 2, p.LABEL_WIDTH - (16 * p.scale));
+            });
+
+            ctx.restore();
+          }
+        }
+      }
+
+      frameId = requestAnimationFrame(loop);
+    };
+
+    frameId = requestAnimationFrame(loop);
+    return () => {
+      cancelAnimationFrame(frameId);
+      video.pause();
+    };
+  }, []); // Start once on mount; all mutable params are read from previewDrawParamsRef
+
+  // Seek callback — only updates local preview state, never the main store.
+  const previewSeek = useCallback((time: number) => {
+    const p = previewDrawParamsRef.current;
+    const clamped = Math.max(p.trimStart, Math.min(p.trimEnd, time));
+    previewTimeRef.current = clamped;
+    const video = videoRef.current;
+    if (video) video.currentTime = clamped;
+    previewCurrentTimeRef.current = clamped;
+    setPreviewCurrentTime(clamped);
+  }, []);
+
+  // Spacebar inside the modal toggles preview play/pause
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && e.target === document.body) {
+        e.preventDefault();
+        setPreviewIsPlaying(p => !p);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Auto-stop when video ends
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const onEnded = () => setPreviewIsPlaying(false);
+    video.addEventListener('ended', onEnded);
+    return () => video.removeEventListener('ended', onEnded);
+  }, []);
 
   useEffect(() => {
     const unlisten = listen<{ percent: number, stage: string }>('export-progress', (event) => {
@@ -478,19 +582,49 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
             <p style={{ margin: 0, opacity: 0.8, fontSize: '14px' }}>Adjust the strip appearance before FFmpeg encoding.</p>
             
             {/* Preview Box */}
-            <div style={{
-              width: '100%',
-              backgroundColor: '#0A0C18',
-              borderRadius: '8px',
-              border: '1px solid rgba(255,255,255,0.15)',
-              overflow: 'hidden',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.4), inset 0 0 20px rgba(0,0,0,0.5)',
-              aspectRatio: project.video?.resolution ? `${project.video.resolution[0]} / ${project.video.resolution[1]}` : '16/9'
-            }}>
-              <canvas ref={previewCanvasRef} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            <div style={{ width: '100%', position: 'relative', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)', boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}>
+              <div
+                style={{
+                  width: '100%',
+                  backgroundColor: '#0A0C18',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  aspectRatio: project.video?.resolution ? `${project.video.resolution[0]} / ${project.video.resolution[1]}` : '16/9'
+                }}
+                onClick={() => setPreviewIsPlaying(p => !p)}
+              >
+                <canvas ref={previewCanvasRef} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+              </div>
+
+              {/* Seek bar */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px 8px', background: 'rgba(10,12,24,0.92)', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                <span style={{ fontSize: '11px', fontFamily: 'monospace', color: '#94a3b8', flexShrink: 0, minWidth: '52px' }}>
+                  {fmtTime(Math.max(0, previewCurrentTime - trimStart))}
+                </span>
+                <div style={{ flex: 1, position: 'relative', height: '16px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                  <div style={{ position: 'absolute', left: 0, right: 0, height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.12)' }} />
+                  <div style={{
+                    position: 'absolute', left: 0, height: '4px', borderRadius: '2px',
+                    background: '#4ade80',
+                    width: `${exportDuration > 0 ? Math.min(1, (previewCurrentTime - trimStart) / exportDuration) * 100 : 0}%`,
+                  }} />
+                  <input
+                    type="range"
+                    min={trimStart}
+                    max={trimEnd}
+                    step={0.05}
+                    value={previewCurrentTime}
+                    onChange={(e) => previewSeek(parseFloat(e.target.value))}
+                    onMouseDown={() => setPreviewIsPlaying(false)}
+                    style={{ position: 'absolute', left: 0, right: 0, width: '100%', opacity: 0, cursor: 'pointer', height: '100%', margin: 0 }}
+                  />
+                </div>
+                <span style={{ fontSize: '11px', fontFamily: 'monospace', color: '#94a3b8', flexShrink: 0, minWidth: '52px', textAlign: 'right' }}>
+                  {fmtTime(exportDuration)}
+                </span>
+              </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -608,12 +742,11 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
         )}
 
         <canvas ref={canvasRef} style={{ display: 'none' }} />
-        <video 
-          ref={videoRef} 
-          src={videoUrl || undefined} 
-          style={{ display: 'none' }} 
-          onSeeked={() => setRedrawTrigger(v => v + 1)}
-          onCanPlay={() => setRedrawTrigger(v => v + 1)}
+        <video
+          ref={videoRef}
+          src={videoUrl || undefined}
+          muted
+          style={{ display: 'none' }}
         />
       </div>
     </div>

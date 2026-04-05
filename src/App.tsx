@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useVideoSync } from './hooks/useVideoSync';
 import { useProjectStore } from './stores/projectStore';
@@ -39,6 +39,9 @@ function App() {
   }, [checkFfmpeg]);
 
   const [isExporting, setIsExporting] = useState(false);
+  // Ref so the keyboard handler closure always sees the latest value without re-registering
+  const isExportingRef = useRef(false);
+  useEffect(() => { isExportingRef.current = isExporting; }, [isExporting]);
   const [subtitleModal, setSubtitleModal] = useState<'import' | 'export' | null>(null);
   const [droppedSubtitlePath, setDroppedSubtitlePath] = useState<string | undefined>(undefined);
 
@@ -104,6 +107,8 @@ function App() {
       // Don't intercept when typing in inputs
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      // Export modal is open — let it handle its own interactions
+      if (isExportingRef.current) return;
 
       switch (e.key) {
         case ' ':
@@ -271,7 +276,7 @@ function App() {
             <button className="menu-btn" onClick={() => setSubtitleModal('export')} title="Export SRT / ASS" id="menu-export-sub" style={{ color: '#93c5fd' }}>
               📤 Export Subtitles
             </button>
-            <button className="menu-btn" onClick={() => setIsExporting(true)} title="Export final video" id="menu-export" style={{ marginLeft: '10px', backgroundColor: 'rgba(74, 222, 128, 0.2)', color: '#4ade80' }}>
+            <button className="menu-btn" onClick={() => { videoSync.pause(); setIsExporting(true); }} title="Export final video" id="menu-export" style={{ marginLeft: '10px', backgroundColor: 'rgba(74, 222, 128, 0.2)', color: '#4ade80' }}>
               🎥 Export Video
             </button>
           </div>
@@ -312,7 +317,7 @@ function App() {
         </div>
       </div>
       
-      {isExporting && <ExportModal onClose={() => setIsExporting(false)} />}
+      {isExporting && <ExportModal onClose={() => { setIsExporting(false); }} />}
       {subtitleModal && <SubtitleIOModal mode={subtitleModal} initialFilePath={droppedSubtitlePath} onClose={() => { setSubtitleModal(null); setDroppedSubtitlePath(undefined); }} />}
     </div>
   );
