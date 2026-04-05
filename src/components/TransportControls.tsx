@@ -17,13 +17,15 @@ function formatTimecode(seconds: number, fps: number = 24): string {
 
 const TransportControls: React.FC<TransportControlsProps> = ({ videoSync }) => {
   const { togglePlay, seek, stepFrame, setPlaybackRate, getDuration } = videoSync;
-  const { project, currentTime, isPlaying, selectedDialogueId, selectedDialogueIds, splitDialogue, deleteDialogue, deleteSelected, fuseDialogues, autoAddOnSelect, toggleAutoAddOnSelect } = useProjectStore();
+  const { project, currentTime, isPlaying, selectedDialogueId, selectedDialogueIds, splitDialogue, addDialogueVisualCut, deleteDialogue, deleteSelected, fuseDialogues, autoAddOnSelect, toggleAutoAddOnSelect } = useProjectStore();
+  const selectedMarkerIds = useProjectStore((s) => s.selectedMarkerIds);
   const [rate, setRate] = useState(1.0);
   const fps = project.video?.fps || 24;
   const duration = getDuration();
 
   const selectedDialogue = project.dialogues.find(d => d.id === selectedDialogueId);
   const canSplit = !!selectedDialogue && currentTime > selectedDialogue.start_time && currentTime < selectedDialogue.end_time;
+  const canAddVisualCut = !!selectedDialogue && currentTime > selectedDialogue.start_time && currentTime < selectedDialogue.end_time;
 
   const canFuse = (() => {
     if (selectedDialogueIds.length !== 2) return false;
@@ -32,6 +34,8 @@ const TransportControls: React.FC<TransportControlsProps> = ({ videoSync }) => {
   })();
 
   const hasMultiSelect = selectedDialogueIds.length > 1;
+  const hasMarkersSelected = selectedMarkerIds.length > 0;
+  const canDelete = !!selectedDialogueId || hasMultiSelect || hasMarkersSelected;
 
   const handleRateChange = useCallback((newRate: number) => {
     setRate(newRate);
@@ -102,16 +106,16 @@ const TransportControls: React.FC<TransportControlsProps> = ({ videoSync }) => {
           </button>
           <button
             className="transport-btn"
-            title={hasMultiSelect ? `Delete ${selectedDialogueIds.length} selected dialogues (Del)` : (selectedDialogueId ? 'Delete selected dialogue (Del)' : 'Select a dialogue first')}
-            disabled={!selectedDialogueId && !hasMultiSelect}
+            title={hasMultiSelect ? `Delete ${selectedDialogueIds.length} selected dialogues (Del)` : hasMarkersSelected ? `Delete ${selectedMarkerIds.length} selected marker(s) (Del)` : (selectedDialogueId ? 'Delete selected dialogue (Del)' : 'Select a dialogue or marker first')}
+            disabled={!canDelete}
             onClick={() => {
-              if (hasMultiSelect) {
+              if (hasMultiSelect || hasMarkersSelected) {
                 deleteSelected();
               } else if (selectedDialogueId) {
                 deleteDialogue(selectedDialogueId);
               }
             }}
-            style={{ opacity: (selectedDialogueId || hasMultiSelect) ? 1 : 0.35, color: '#f87171', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            style={{ opacity: canDelete ? 1 : 0.35, color: '#f87171', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             id="btn-delete-dialogue"
           >
             <svg width="14" height="15" viewBox="0 0 14 15" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -133,6 +137,19 @@ const TransportControls: React.FC<TransportControlsProps> = ({ videoSync }) => {
               <path d="M7.5 7v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
               <path d="M4 5V3.5A1.5 1.5 0 0 1 5.5 2h4A1.5 1.5 0 0 1 11 3.5V5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
               {autoAddOnSelect && <circle cx="12.5" cy="3.5" r="2" fill="currentColor"/>}
+            </svg>
+          </button>
+          <button
+            className="transport-btn"
+            title={canAddVisualCut ? 'Add visual separator at playhead (C)' : 'Select a dialogue and place the playhead inside it'}
+            disabled={!canAddVisualCut}
+            onClick={() => { if (selectedDialogueId) addDialogueVisualCut(selectedDialogueId, currentTime); }}
+            style={{ opacity: canAddVisualCut ? 1 : 0.35, color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            id="btn-visual-cut-tool"
+          >
+            <svg width="16" height="15" viewBox="0 0 16 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3 2v11M8 4v7M13 1.5v12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              <circle cx="8" cy="7.5" r="2" fill="currentColor"/>
             </svg>
           </button>
         </div>

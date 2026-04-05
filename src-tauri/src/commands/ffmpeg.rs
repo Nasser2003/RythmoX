@@ -330,6 +330,7 @@ pub async fn export_fast_video(
     ui_path: String,
     output_path: String,
     duration: f64,
+    trim_start: f64,
     pps: f64,
     chunk_duration: f64,
     track_offset_x: f64,
@@ -346,6 +347,8 @@ pub async fn export_fast_video(
     let mut args = vec![
         "-y".to_string(),
         "-threads".to_string(), "0".to_string(), // Use all CPU cores
+        "-ss".to_string(), trim_start.to_string(),
+        "-t".to_string(), duration.to_string(),
         "-i".to_string(), video_path,
     ];
 

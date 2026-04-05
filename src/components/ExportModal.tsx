@@ -64,23 +64,85 @@ const drawBande = (
 
         if (d.text && blockWidth > 20) {
           ctx.fillStyle = '#ffffff';
-          const fontSize = Math.min(blockH - (8 * scale), 22 * scale);
-          ctx.font = `${d.bold ? 'bold' : '500'} ${fontSize}px ${d.font_family || 'sans-serif'}`;
+          const fontSize = Math.min(blockH, 28 * scale);
+          const fontStyle = d.italic ? 'italic ' : '';
+          const fontWeight = d.bold ? 'bold' : '500';
+          ctx.font = `${fontStyle}${fontWeight} ${fontSize}px ${d.font_family || 'sans-serif'}`;
           ctx.textBaseline = 'middle';
           ctx.textAlign = 'left';
 
-          const textWidth = ctx.measureText(d.text).width;
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(clampedStart, laneY + LANE_PADDING, clampedWidth, blockH);
-          ctx.clip();
-          ctx.translate(startX + 8, laneY + LANE_HEIGHT / 2);
-          const targetWidth = Math.max(1, blockWidth - 16);
-          if (textWidth > 0) ctx.scale(targetWidth / textWidth, 1);
-          ctx.fillText(d.text, 0, 0);
-          if (d.underline) ctx.fillRect(0, fontSize * 0.2, textWidth, Math.max(1, fontSize * 0.08));
-          if (d.crossed) ctx.fillRect(0, -fontSize * 0.35, textWidth, Math.max(1, fontSize * 0.08));
-          ctx.restore();
+          const cuts: Array<{ position: number; char_index?: number }> = (d.visual_cuts || [])
+            .slice()
+            .sort((a: any, b: any) => a.position - b.position);
+
+          if (cuts.length === 0) {
+            // Single-stretch: no visual cuts
+            const textWidth = ctx.measureText(d.text).width;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(clampedStart, laneY + LANE_PADDING, clampedWidth, blockH);
+            ctx.clip();
+            ctx.translate(startX + 8, laneY + LANE_HEIGHT / 2);
+            const targetWidth = Math.max(1, blockWidth - 16);
+            if (textWidth > 0) ctx.scale(targetWidth / textWidth, 1);
+            ctx.fillText(d.text, 0, 0);
+            if (d.underline) ctx.fillRect(0, fontSize * 0.2, textWidth, Math.max(1, fontSize * 0.08));
+            if (d.crossed) ctx.fillRect(0, -fontSize * 0.35, textWidth, Math.max(1, fontSize * 0.08));
+            ctx.restore();
+          } else {
+            // Segmented rendering: each zone stretched independently (mirrors buildDialogueTextSegments)
+            const leftPad = 8;
+            const rightPad = 8;
+            const contentWidth = Math.max(1, blockWidth - leftPad - rightPad);
+            const segmentGap = Math.min(8, Math.max(4, blockWidth * 0.015));
+            const usableWidth = Math.max(1, contentWidth - cuts.length * segmentGap);
+
+            const normalizedCuts = cuts.map((cut) => ({
+              position: Math.max(0.02, Math.min(0.98, cut.position)),
+              char_index: cut.char_index,
+            }));
+
+            const boundaries = [0, ...normalizedCuts.map((cut) => cut.position), 1];
+            const totalChars = d.text.length;
+            const charBoundaries = [0];
+            for (let idx = 0; idx < normalizedCuts.length; idx++) {
+              const cut = normalizedCuts[idx];
+              const rawIndex = typeof cut.char_index === 'number'
+                ? cut.char_index
+                : Math.round(totalChars * cut.position);
+              const prev = charBoundaries[charBoundaries.length - 1];
+              const remaining = normalizedCuts.length - idx - 1;
+              const maxIdx = Math.max(prev, totalChars - remaining);
+              charBoundaries.push(Math.max(prev, Math.min(maxIdx, rawIndex)));
+            }
+            charBoundaries.push(totalChars);
+
+            const textY = laneY + LANE_HEIGHT / 2;
+            let cursorX = leftPad;
+
+            boundaries.slice(0, -1).forEach((_start, index) => {
+              const end = boundaries[index + 1];
+              const segWidth = Math.max(1, usableWidth * (end - boundaries[index]));
+              const segText = d.text.slice(charBoundaries[index], charBoundaries[index + 1]);
+              const segX = startX + cursorX;
+
+              if (segText && segWidth >= 4) {
+                const segTextWidth = ctx.measureText(segText).width;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(segX, laneY + LANE_PADDING, segWidth, blockH);
+                ctx.clip();
+                ctx.translate(segX, textY);
+                if (segTextWidth > 0) ctx.scale(segWidth / segTextWidth, 1);
+                ctx.fillText(segText, 0, 0);
+                if (d.underline) ctx.fillRect(0, fontSize * 0.2, segTextWidth, Math.max(1, fontSize * 0.08));
+                if (d.crossed) ctx.fillRect(0, -fontSize * 0.35, segTextWidth, Math.max(1, fontSize * 0.08));
+                ctx.restore();
+              }
+
+              cursorX += segWidth + segmentGap;
+            });
+          }
         }
       });
     });
@@ -107,9 +169,9 @@ const drawBande = (
           const textW = ctx.measureText(m.label).width;
           // Background pill so label is readable over video
           ctx.fillStyle = m.color;
-          ctx.fillRect(mx + 2, TOP_BORDER, textW + padding * 2, fontSize + padding * 2);
+          ctx.fillRect(mx + 2, 2, textW + padding * 2, fontSize + padding * 2);
           ctx.fillStyle = '#000000';
-          ctx.fillText(m.label, mx + 2 + padding, TOP_BORDER + padding);
+          ctx.fillText(m.label, mx + 2 + padding, 2 + padding);
         }
       }
     });
@@ -133,9 +195,13 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [error, setError] = useState<string | null>(null);
 
   const [scale, setScale] = useState(1.0);
-  const [pps, setPps] = useState(150);
+  const [pps, setPps] = useState(200);
   const [gpu, setGpu] = useState<'none' | 'nvenc' | 'qsv' | 'amf'>('none');
   const [availableGpus, setAvailableGpus] = useState<string[] | null>(null);
+  const trimStart = Math.max(0, Math.min(project.video?.duration || 0, project.settings.export_start || 0));
+  const trimEndValue = project.settings.export_end && project.settings.export_end > 0 ? project.settings.export_end : (project.video?.duration || 0);
+  const trimEnd = Math.max(trimStart + 0.1, Math.min(project.video?.duration || trimEndValue, trimEndValue));
+  const exportDuration = Math.max(0.1, trimEnd - trimStart);
 
   // Detect available GPU encoders once on mount
   useEffect(() => {
@@ -146,9 +212,9 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   // Layout constants
   const LANE_HEIGHT = Math.floor(50 * scale);    
-  const LANE_PADDING = Math.floor(8 * scale);      
+  const LANE_PADDING = 0;      
   const LABEL_WIDTH = Math.floor(120 * scale);     
-  const TOP_BORDER = Math.max(1, Math.floor(4 * scale)); 
+  const TOP_BORDER = Math.max(20, Math.floor(22 * scale)); 
 
   const activeCharacters = project.characters.filter(char => 
     project.dialogues.some(d => d.character_id === char.id)
@@ -215,9 +281,9 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     // Draw dialogues at current project time
     drawBande(ctx, currentTime, pps, scale, project, activeCharacters, TRACK_OFFSET_X, overlayWidth, overlayHeight, LABEL_WIDTH, LANE_HEIGHT, LANE_PADDING, TOP_BORDER);
 
-    // UI Panel (labels background)
+    // UI Panel (labels background - starts below marker header strip)
     ctx.fillStyle = '#0f121a'; 
-    ctx.fillRect(0, 0, LABEL_WIDTH, overlayHeight);
+    ctx.fillRect(0, TOP_BORDER, LABEL_WIDTH, overlayHeight - TOP_BORDER);
 
     ctx.strokeStyle = '#475569';
     ctx.lineWidth = 1;
@@ -238,7 +304,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     activeCharacters.forEach((char, i) => {
       const laneY = TOP_BORDER + i * LANE_HEIGHT;
       ctx.fillStyle = char.color;
-      ctx.font = `bold ${Math.max(8, 13 * scale)}px sans-serif`;
+      ctx.font = `bold ${Math.max(10, 16 * scale)}px sans-serif`;
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
       ctx.fillText(char.name, 8 * scale, laneY + LANE_HEIGHT / 2, LABEL_WIDTH - (16 * scale));
@@ -284,7 +350,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     if (!ctx) return;
 
     try {
-      const duration = project.video.duration || 60;
+      const duration = exportDuration;
       // Single mega-chunk: reduces FFmpeg overlay chain depth from N+2 to 3,
       // and eliminates redundant canvas renders + IPC calls.
       // WebView2 (Chromium) handles canvases up to ~40 000px wide without issues.
@@ -298,6 +364,7 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
 
       for (let c = 0; c < numChunks; c++) {
         const startTime = c * chunkDuration;
+        const sourceTime = trimStart + startTime;
         const currentChunkDuration = Math.min(chunkDuration, duration - startTime);
         const chunkWidth = Math.ceil(currentChunkDuration * pps);
         
@@ -308,7 +375,7 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
         ctx.fillStyle = '#0a0c18';
         ctx.fillRect(0, 0, chunkWidth, overlayHeight);
 
-        drawBande(ctx, startTime, pps, scale, project, activeCharacters, 0, chunkWidth, overlayHeight, 0, LANE_HEIGHT, LANE_PADDING, TOP_BORDER, true);
+        drawBande(ctx, sourceTime, pps, scale, project, activeCharacters, 0, chunkWidth, overlayHeight, 0, LANE_HEIGHT, LANE_PADDING, TOP_BORDER, true);
 
         // JPEG: 5-10× faster than PNG, 3-5× smaller → much faster IPC transfer
         // Quality 0.85 is visually identical to 0.92 for synthetic content (text/colors)
@@ -327,14 +394,14 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
       ctx.clearRect(0, 0, overlayWidth, overlayHeight);
 
       ctx.strokeStyle = '#334155';
-      ctx.lineWidth = TOP_BORDER;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(0, TOP_BORDER / 2);
-      ctx.lineTo(overlayWidth, TOP_BORDER / 2);
+      ctx.moveTo(0, 1);
+      ctx.lineTo(overlayWidth, 1);
       ctx.stroke();
 
       ctx.fillStyle = '#0f121a'; 
-      ctx.fillRect(0, 0, LABEL_WIDTH, overlayHeight);
+      ctx.fillRect(0, TOP_BORDER, LABEL_WIDTH, overlayHeight - TOP_BORDER);
 
       ctx.strokeStyle = '#475569';
       ctx.lineWidth = 1;
@@ -361,7 +428,7 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
           ctx.stroke();
         }
         ctx.fillStyle = char.color;
-        ctx.font = `bold ${Math.max(8, 13 * scale)}px sans-serif`;
+        ctx.font = `bold ${Math.max(10, 16 * scale)}px sans-serif`;
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
         ctx.fillText(char.name, 8 * scale, laneY + LANE_HEIGHT / 2, LABEL_WIDTH - (16 * scale));
@@ -383,6 +450,7 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
         uiPath,
         outputPath,
         duration,
+        trimStart,
         pps,
         chunkDuration,
         trackOffsetX: TRACK_OFFSET_X,
@@ -454,20 +522,20 @@ setStage(`Generating timeline strip (${numChunks} chunk${numChunks > 1 ? 's' : '
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <input
                       type="number"
-                      min="10"
-                      max="2000"
+                      min="100"
+                      max="500"
                       step="10"
                       value={pps}
                       onChange={(e) => {
                         const v = parseInt(e.target.value);
-                        if (!isNaN(v) && v >= 10) setPps(v);
+                        if (!isNaN(v) && v >= 100 && v <= 500) setPps(v);
                       }}
                       style={{ width: '64px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#4ade80', fontSize: '13px', padding: '2px 6px', textAlign: 'right', outline: 'none' }}
                     />
                     <span style={{ color: '#4ade80', fontSize: '13px' }}>px/s</span>
                   </div>
                 </label>
-                <input type="range" min="50" max="400" step="10" value={Math.min(pps, 400)} onChange={(e) => setPps(parseInt(e.target.value))} style={rangeStyle} />
+                <input type="range" min="100" max="500" step="10" value={Math.min(Math.max(pps, 100), 500)} onChange={(e) => setPps(parseInt(e.target.value))} style={rangeStyle} />
               </div>
             </div>
 

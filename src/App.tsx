@@ -77,6 +77,27 @@ function App() {
     };
   }, [importVideo]);
 
+  // Disable the native WebView/Chrome context menu everywhere in the app.
+  // Custom in-app context menus still work because they call preventDefault and render their own UI.
+  useEffect(() => {
+    const handleContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+    };
+
+    window.addEventListener('contextmenu', handleContextMenu, { capture: true });
+    return () => window.removeEventListener('contextmenu', handleContextMenu, { capture: true });
+  }, []);
+
+  // Close any click-opened menu/popover when clicking elsewhere.
+  useEffect(() => {
+    const handlePointerDown = () => {
+      window.dispatchEvent(new CustomEvent('rythmox:close-transient-menus'));
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, { capture: true });
+    return () => window.removeEventListener('pointerdown', handlePointerDown, { capture: true });
+  }, []);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -173,9 +194,17 @@ function App() {
               symbols: [],
               font_family: dSettings.font_family,
               bold: false,
+              italic: false,
               underline: false,
               crossed: false,
             });
+          }
+          break;
+        case 'c':
+          if (!e.ctrlKey && !e.altKey && !e.shiftKey) {
+            e.preventDefault();
+            const st = useProjectStore.getState();
+            if (st.selectedDialogueId) st.addDialogueVisualCut(st.selectedDialogueId, st.currentTime);
           }
           break;
       }

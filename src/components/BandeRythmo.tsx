@@ -126,7 +126,7 @@ const BandeRythmo: React.FC = () => {
       // Dialogue text — spread across the duration
       if (dialogue.text && dialogueWidth > 20) {
         const usedFont = dialogue.font_family || font_family;
-        const usedSize = dialogue.font_size || font_size;
+        const usedSize = font_size;
         ctx.fillStyle = '#e2e8f0';
         ctx.font = `${usedSize}px ${usedFont}, sans-serif`;
         ctx.textAlign = 'left';

@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useProjectStore } from '../stores/projectStore';
 import { useVideoSync } from '../hooks/useVideoSync';
 import { useDrag } from '@use-gesture/react';
@@ -9,6 +10,58 @@ interface TimelineProps {
 }
 
 const TRACK_OFFSET = 120;
+const MIN_EXPORT_RANGE = 0.1;
+
+const ctxItemStyle: React.CSSProperties = {
+  display: 'block', width: '100%', padding: '7px 14px',
+  background: 'transparent', border: 'none', color: '#e2e8f0',
+  fontSize: '13px', textAlign: 'left', cursor: 'pointer',
+};
+
+const DIALOGUE_CTX_MENU_WIDTH = 240;
+const DIALOGUE_CTX_MENU_SINGLE_HEIGHT = 122;
+const DIALOGUE_CTX_MENU_MULTI_HEIGHT = 44;
+const DIALOGUE_CTX_MENU_VIEWPORT_MARGIN = 12;
+const DIALOGUE_DRAG_POINTER_CONFIG = { buttons: 1, capture: false, keys: false } as const;
+
+const TimelineTrimHandle = ({
+  time,
+  pps,
+  color,
+  onUpdate,
+}: {
+  time: number;
+  pps: number;
+  color: string;
+  onUpdate: (time: number) => void;
+}) => {
+  const bindDrag = useDrag(({ movement: [mx], event, first, memo }) => {
+    event.stopPropagation();
+    if (first) return time;
+    onUpdate((memo as number) + mx / pps);
+    return memo;
+  });
+
+  return (
+    <div
+      {...(bindDrag() as any)}
+      style={{
+        position: 'absolute',
+        left: time * pps + TRACK_OFFSET,
+        top: 0,
+        bottom: 0,
+        transform: 'translateX(-50%)',
+        zIndex: 36,
+        cursor: 'ew-resize',
+        touchAction: 'none',
+      }}
+      title="Drag export trim handle"
+    >
+      <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '2px', transform: 'translateX(-50%)', background: color, boxShadow: `0 0 0 1px rgba(15,23,42,0.9), 0 0 6px ${color}55` }} />
+      <div style={{ position: 'absolute', top: 2, left: '50%', width: '10px', height: '10px', transform: 'translateX(-50%)', background: color, borderRadius: '2px', boxShadow: '0 0 0 2px rgba(15,23,42,0.9)' }} />
+    </div>
+  );
+};
 
 const TimelineMarkerBlock = ({ m, pps, height, onUpdate }: { m: Marker, pps: number, height: number, onUpdate: (id: string, updates: Partial<Marker>) => void }) => {
   const selectMarker = useProjectStore((s) => s.selectMarker);
@@ -53,6 +106,140 @@ const TimelineMarkerBlock = ({ m, pps, height, onUpdate }: { m: Marker, pps: num
   );
 };
 
+type DialogueTextSegment = {
+  key: string;
+  text: string;
+  x: number;
+  width: number;
+  clipId: string;
+};
+
+function buildDialogueTextSegments(
+  dialogueId: string,
+  text: string,
+  cuts: Array<{ position: number; char_index?: number }>,
+  blockWidth: number
+): DialogueTextSegment[] {
+  const leftPad = 10;
+  const rightPad = 10;
+  const contentWidth = Math.max(1, blockWidth - leftPad - rightPad);
+  const segmentGap = cuts.length > 0 ? Math.min(8, Math.max(4, blockWidth * 0.015)) : 0;
+  const usableWidth = Math.max(1, contentWidth - cuts.length * segmentGap);
+  const normalizedCuts = [...cuts]
+    .map((cut) => ({
+      position: Math.max(0.02, Math.min(0.98, cut.position)),
+      char_index: cut.char_index,
+    }))
+    .sort((a, b) => a.position - b.position);
+  const boundaries = [0, ...normalizedCuts.map((cut) => cut.position), 1];
+  const totalChars = text.length;
+  const charBoundaries = [0];
+
+  for (let index = 0; index < normalizedCuts.length; index += 1) {
+    const cut = normalizedCuts[index]!;
+    const rawIndex = typeof cut.char_index === 'number'
+      ? cut.char_index
+      : Math.round(totalChars * cut.position);
+    const previousIndex = charBoundaries[charBoundaries.length - 1];
+    const remainingCuts = normalizedCuts.length - index - 1;
+    const maxIndex = Math.max(previousIndex, totalChars - remainingCuts);
+    charBoundaries.push(Math.max(previousIndex, Math.min(maxIndex, rawIndex)));
+  }
+
+  charBoundaries.push(totalChars);
+
+  let cursorX = leftPad;
+  return boundaries.slice(0, -1).map((start, index) => {
+    const end = boundaries[index + 1];
+    const segmentWidth = Math.max(1, usableWidth * (end - start));
+    const segmentText = text.slice(charBoundaries[index], charBoundaries[index + 1]);
+    const segment = {
+      key: `segment-${index}`,
+      text: segmentText,
+      x: cursorX,
+      width: segmentWidth,
+      clipId: `dialogue-${dialogueId}-segment-${index}`,
+    };
+    cursorX += segmentWidth + segmentGap;
+    return segment;
+  });
+}
+
+const TimelineDialogueCutHandle = ({
+  cut,
+  color,
+  blockWidth,
+  onMove,
+  onDelete,
+}: {
+  cut: { id: string; position: number };
+  color: string;
+  blockWidth: number;
+  onMove: (position: number) => void;
+  onDelete: () => void;
+}) => {
+  const bindCutDrag = useDrag(({ movement: [mx], event, first, memo }) => {
+    event.stopPropagation();
+    if (first) return cut.position;
+    onMove((memo as number) + mx / Math.max(blockWidth, 1));
+    return memo;
+  }, { pointer: DIALOGUE_DRAG_POINTER_CONFIG });
+
+  return (
+    <div
+      {...(bindCutDrag() as any)}
+      data-cut-handle="true"
+      onClick={(e) => {
+        e.stopPropagation();
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onDelete();
+      }}
+      title="Drag to move visual separator. Right click to remove."
+      style={{
+        position: 'absolute',
+        left: `${cut.position * blockWidth}px`,
+        top: 2,
+        bottom: 2,
+        width: '0px',
+        transform: 'translateX(-50%)',
+        zIndex: 6,
+        pointerEvents: 'auto',
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          left: '-1px',
+          width: '2px',
+          background: color,
+          opacity: 0.9,
+          boxShadow: `0 0 0 1px rgba(15,23,42,0.75), 0 0 8px ${color}55`,
+          borderRadius: '999px',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          width: '10px',
+          height: '10px',
+          transform: 'translate(-50%, -50%) rotate(45deg)',
+          background: color,
+          borderRadius: '2px',
+          boxShadow: '0 0 0 2px rgba(15,23,42,0.9)',
+          cursor: 'ew-resize',
+        }}
+      />
+    </div>
+  );
+};
+
 const TimelineDialogueBlock = ({
   dialogue,
   color,
@@ -77,8 +264,20 @@ const TimelineDialogueBlock = ({
   const selectedDialogueId = useProjectStore((s) => s.selectedDialogueId);
   const selectedDialogueIds = useProjectStore((s) => s.selectedDialogueIds);
   const toggleDialogueSelection = useProjectStore((s) => s.toggleDialogueSelection);
+  const fontPreviewDialogueId = useProjectStore((s) => s.fontPreviewDialogueId);
+  const deleteDialogue = useProjectStore((s) => s.deleteDialogue);
+  const deleteSelected = useProjectStore((s) => s.deleteSelected);
+  const setDefaultDialogueStyle = useProjectStore((s) => s.setDefaultDialogueStyle);
+  const setDefaultDialogueStyleForRole = useProjectStore((s) => s.setDefaultDialogueStyleForRole);
   const isSelected = selectedDialogueId === dialogue.id;
   const isMultiSelected = selectedDialogueIds.includes(dialogue.id);
+  const isMultiSelectMode = selectedDialogueIds.length > 1;
+  const [ctxMenu, setCtxMenu] = React.useState<{ x: number; y: number } | null>(null);
+  const [isBlockDragging, setIsBlockDragging] = useState(false);
+  const [blockDragPreview, setBlockDragPreview] = useState<{ start: number; end: number } | null>(null);
+  const suppressClickRef = useRef(false);
+  const blockDragCleanupRef = useRef<(() => void) | null>(null);
+  const visualCuts = [...(dialogue.visual_cuts ?? [])].sort((a, b) => a.position - b.position);
 
   const checkSnap = (time: number, event: any) => {
     // Some touch events may not have altKey, default to false
@@ -123,47 +322,100 @@ const TimelineDialogueBlock = ({
     return closestTime;
   };
 
-  // Center drag (move entire block)
-  const bindDrag = useDrag(({ movement: [mx], event, first, memo }) => {
-    event.stopPropagation();
-    if (first) return { start: dialogue.start_time, end: dialogue.end_time };
+  const handleBlockPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('.resize-handle, [data-cut-handle="true"]')) return;
 
-    const initialStart = memo.start;
-    const duration = memo.end - memo.start;
-    let dt = mx / pps;
-    let newStart = initialStart + dt;
-    let newEnd = newStart + duration;
+    e.stopPropagation();
+    blockDragCleanupRef.current?.();
 
-    // Smart Snapping for either edge
-    if (!event.altKey) {
-      const snappedStart = checkSnap(newStart, event);
-      if (snappedStart !== newStart) {
-        newStart = snappedStart;
-      } else {
-        // Try snapping the end if the start didn't snap
-        const snappedEnd = checkSnap(newEnd, event);
-        if (snappedEnd !== newEnd) {
-          newStart = snappedEnd - duration;
+    if (!isSelected && !isMultiSelected && !e.ctrlKey && !e.metaKey) {
+      selectDialogue(dialogue.id);
+    }
+
+    const dragState = {
+      pointerId: e.pointerId,
+      startClientX: e.clientX,
+      startStart: dialogue.start_time,
+      startEnd: dialogue.end_time,
+      moved: false,
+      previewStart: dialogue.start_time,
+      previewEnd: dialogue.end_time,
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+      blockDragCleanupRef.current = null;
+      setIsBlockDragging(false);
+      setBlockDragPreview(null);
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== dragState.pointerId) return;
+
+      const dx = event.clientX - dragState.startClientX;
+      if (Math.abs(dx) > 2) {
+        dragState.moved = true;
+        suppressClickRef.current = true;
+      }
+
+      let newStart = dragState.startStart + dx / pps;
+      const duration = dragState.startEnd - dragState.startStart;
+      let newEnd = newStart + duration;
+
+      if (!event.altKey) {
+        const snappedStart = checkSnap(newStart, event);
+        if (snappedStart !== newStart) {
+          newStart = snappedStart;
+        } else {
+          const snappedEnd = checkSnap(newEnd, event);
+          if (snappedEnd !== newEnd) {
+            newStart = snappedEnd - duration;
+          }
         }
       }
-    }
 
-    // Constraint 1: t0 (cannot go below 0)
-    if (newStart < 0) {
-      newStart = 0;
-    }
+      if (newStart < 0) {
+        newStart = 0;
+      }
 
-    // Constraint 2: t.max
-    if (maxTime > 0 && newStart + duration > maxTime) {
-      newStart = Math.max(0, maxTime - duration);
-    }
+      if (maxTime > 0 && newStart + duration > maxTime) {
+        newStart = Math.max(0, maxTime - duration);
+      }
 
-    onUpdate(dialogue.id, {
-      start_time: newStart,
-      end_time: newStart + duration
-    });
-    return memo;
-  });
+      dragState.previewStart = newStart;
+      dragState.previewEnd = newStart + duration;
+      setBlockDragPreview({
+        start: dragState.previewStart,
+        end: dragState.previewEnd,
+      });
+    };
+
+    const handlePointerEnd = (event: PointerEvent) => {
+      if (event.pointerId !== dragState.pointerId) return;
+      if (event.type === 'pointerup' && dragState.moved) {
+        onUpdate(dialogue.id, {
+          start_time: dragState.previewStart,
+          end_time: dragState.previewEnd,
+        });
+      }
+      cleanup();
+    };
+
+    blockDragCleanupRef.current = cleanup;
+    setIsBlockDragging(true);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+  }, [checkSnap, dialogue.id, dialogue.end_time, dialogue.start_time, isMultiSelected, isSelected, maxTime, onUpdate, pps, selectDialogue]);
+
+  useEffect(() => {
+    return () => {
+      blockDragCleanupRef.current?.();
+    };
+  }, []);
 
   // Left edge drag (resize start)
   const bindLeft = useDrag(({ movement: [mx], event, first, memo }) => {
@@ -179,7 +431,7 @@ const TimelineDialogueBlock = ({
       start_time: newStart
     });
     return memo;
-  });
+  }, { pointer: DIALOGUE_DRAG_POINTER_CONFIG });
 
   // Right edge drag (resize end)
   const bindRight = useDrag(({ movement: [mx], event, first, memo }) => {
@@ -195,28 +447,76 @@ const TimelineDialogueBlock = ({
       end_time: newEnd
     });
     return memo;
-  });
+  }, { pointer: DIALOGUE_DRAG_POINTER_CONFIG });
 
-  const blockWidth = Math.max(4, (dialogue.end_time - dialogue.start_time) * pps);
+  const displayStart = blockDragPreview?.start ?? dialogue.start_time;
+  const displayEnd = blockDragPreview?.end ?? dialogue.end_time;
+  const blockWidth = Math.max(4, (displayEnd - displayStart) * pps);
+  const textSegments = buildDialogueTextSegments(dialogue.id, dialogue.text, visualCuts, blockWidth);
+  const updateVisualCuts = useCallback((nextCuts: { id: string; position: number; char_index?: number }[]) => {
+    onUpdate(dialogue.id, { visual_cuts: nextCuts });
+  }, [dialogue.id, onUpdate]);
+
+  const moveVisualCut = useCallback((cutId: string, nextPosition: number) => {
+    const currentIndex = visualCuts.findIndex((cut) => cut.id === cutId);
+    if (currentIndex === -1) return;
+    const minGap = Math.min(0.08, 14 / Math.max(blockWidth, 1));
+    const previous = currentIndex > 0 ? visualCuts[currentIndex - 1].position : 0;
+    const next = currentIndex < visualCuts.length - 1 ? visualCuts[currentIndex + 1].position : 1;
+    const clamped = Math.max(previous + minGap, Math.min(next - minGap, nextPosition));
+    updateVisualCuts(visualCuts.map((cut) => cut.id === cutId ? { ...cut, position: clamped } : cut));
+  }, [blockWidth, updateVisualCuts, visualCuts]);
+
+  const deleteVisualCut = useCallback((cutId: string) => {
+    updateVisualCuts(visualCuts.filter((cut) => cut.id !== cutId));
+  }, [updateVisualCuts, visualCuts]);
+
+  const getClampedContextMenuPosition = useCallback((clientX: number, clientY: number) => {
+    const menuHeight = isMultiSelectMode ? DIALOGUE_CTX_MENU_MULTI_HEIGHT : DIALOGUE_CTX_MENU_SINGLE_HEIGHT;
+    const maxX = Math.max(
+      DIALOGUE_CTX_MENU_VIEWPORT_MARGIN,
+      window.innerWidth - DIALOGUE_CTX_MENU_WIDTH - DIALOGUE_CTX_MENU_VIEWPORT_MARGIN,
+    );
+    const maxY = Math.max(
+      DIALOGUE_CTX_MENU_VIEWPORT_MARGIN,
+      window.innerHeight - menuHeight - DIALOGUE_CTX_MENU_VIEWPORT_MARGIN,
+    );
+
+    return {
+      x: Math.max(DIALOGUE_CTX_MENU_VIEWPORT_MARGIN, Math.min(clientX, maxX)),
+      y: Math.max(DIALOGUE_CTX_MENU_VIEWPORT_MARGIN, Math.min(clientY, maxY)),
+    };
+  }, [isMultiSelectMode]);
 
   return (
     <div
-      {...(bindDrag() as any)}
       className={`timeline-block ${isSelected ? 'selected' : ''}`}
+      onPointerDown={handleBlockPointerDown}
       onDoubleClick={(e) => {
         e.stopPropagation();
         requestDialogueEdit(dialogue.id);
       }}
       onClick={(e) => {
         e.stopPropagation();
+        if (suppressClickRef.current) {
+          suppressClickRef.current = false;
+          return;
+        }
+        setCtxMenu(null);
         if (e.ctrlKey || e.metaKey) {
           toggleDialogueSelection(dialogue.id);
         } else {
           selectDialogue(dialogue.id);
         }
       }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isMultiSelected) selectDialogue(dialogue.id);
+        setCtxMenu(getClampedContextMenuPosition(e.clientX, e.clientY));
+      }}
       style={{
-        left: dialogue.start_time * pps + TRACK_OFFSET,
+        left: displayStart * pps + TRACK_OFFSET,
         width: blockWidth,
         backgroundColor: isMultiSelected ? `${color}40` : `${color}20`,
         borderTop: `3px solid ${isMultiSelected ? color : `${color}60`}`,
@@ -227,7 +527,7 @@ const TimelineDialogueBlock = ({
         height: '40px',
         top: '10px',
         boxSizing: 'border-box',
-        cursor: 'grab',
+        cursor: isBlockDragging ? 'grabbing' : 'grab',
         touchAction: 'none',
         display: 'flex',
         flexDirection: 'column',
@@ -254,26 +554,116 @@ const TimelineDialogueBlock = ({
         preserveAspectRatio="none"
         style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none', zIndex: 1 }}
       >
-        <text
-          x="10"
-          y="28"
-          fill="#e2e8f0"
-          fontFamily={isSelected ? `'Courier New', monospace` : (dialogue.font_family || 'sans-serif')}
-          fontSize={12}
-          fontWeight={dialogue.bold ? 'bold' : '500'}
-          style={{ textDecoration: [dialogue.underline && 'underline', dialogue.crossed && 'line-through'].filter(Boolean).join(' ') || 'none' }}
-          textLength={Math.max(1, blockWidth - 20)}
-          lengthAdjust="spacingAndGlyphs"
-        >
-          {dialogue.text}
-        </text>
+        <defs>
+          {textSegments.map((segment) => (
+            <clipPath key={segment.clipId} id={segment.clipId}>
+              <rect x={segment.x} y="11" width={Math.max(0, segment.width)} height="20" rx="1" />
+            </clipPath>
+          ))}
+        </defs>
+        {textSegments.map((segment) => (
+          <g key={segment.key} clipPath={`url(#${segment.clipId})`}>
+            {segment.width >= 6 && (
+              <text
+                x={segment.x}
+                y="28"
+                fill="#e2e8f0"
+                fontFamily={isSelected && fontPreviewDialogueId !== dialogue.id ? `'Courier New', monospace` : (dialogue.font_family || 'sans-serif')}
+                fontSize={12}
+                fontWeight={dialogue.bold ? 'bold' : '500'}
+                fontStyle={dialogue.italic ? 'italic' : 'normal'}
+                style={{ textDecoration: [dialogue.underline && 'underline', dialogue.crossed && 'line-through'].filter(Boolean).join(' ') || 'none' }}
+                textLength={segment.text.trim().length > 0 ? Math.max(1, segment.width) : undefined}
+                lengthAdjust="spacingAndGlyphs"
+              >
+                {segment.text}
+              </text>
+            )}
+          </g>
+        ))}
       </svg>
+
+      {visualCuts.map((cut) => (
+        <TimelineDialogueCutHandle
+          key={cut.id}
+          cut={cut}
+          color={color}
+          blockWidth={blockWidth}
+          onMove={(position) => moveVisualCut(cut.id, position)}
+          onDelete={() => deleteVisualCut(cut.id)}
+        />
+      ))}
 
       <div
         {...(bindRight() as any)}
         className="resize-handle right"
         style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', touchAction: 'none', zIndex: 5 }}
       />
+
+      {ctxMenu && createPortal(
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 9998, cursor: 'default' }}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setCtxMenu(null);
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div
+            style={{
+              position: 'fixed',
+              left: ctxMenu.x,
+              top: ctxMenu.y,
+              background: '#1e293b',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: '6px',
+              padding: '4px 0',
+              zIndex: 9999,
+              width: `${DIALOGUE_CTX_MENU_WIDTH}px`,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            {!isMultiSelectMode && (
+              <>
+                <button
+                  style={ctxItemStyle}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  onClick={() => { setDefaultDialogueStyle(dialogue.id); setCtxMenu(null); }}
+                >
+                  ✦ Set as default style
+                </button>
+                <button
+                  style={ctxItemStyle}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  onClick={() => { setDefaultDialogueStyleForRole(dialogue.id); setCtxMenu(null); }}
+                >
+                  ✦ Set as default style for this role
+                </button>
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', margin: '4px 0' }} />
+              </>
+            )}
+            <button
+              style={{ ...ctxItemStyle, color: '#f87171' }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(248,113,113,0.12)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              onClick={() => {
+                setCtxMenu(null);
+                if (isMultiSelectMode) deleteSelected();
+                else deleteDialogue(dialogue.id);
+              }}
+            >
+              🗑 Delete{isMultiSelectMode ? ` (${selectedDialogueIds.length} selected)` : ''}
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
@@ -390,7 +780,7 @@ const TimelineAudioWaveform: React.FC<{ waveform: number[], pps: number, duratio
 const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
-  const { project, updateDialogue, updateMarker, setHoveredTime } = useProjectStore();
+  const { project, updateDialogue, updateMarker, updateSettings, setHoveredTime } = useProjectStore();
   const selectedCharacterId = useProjectStore((s) => s.selectedCharacterId);
   const selectCharacter = useProjectStore((s) => s.selectCharacter);
   const { seek, getDuration } = videoSync;
@@ -398,6 +788,18 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
   const duration = getDuration() || 60; // fallback strictly for timeline bounds
 
   const { dialogues, characters, markers } = project;
+  const trimStart = Math.max(0, Math.min(duration, project.settings.export_start ?? 0));
+  const trimEndRaw = project.settings.export_end && project.settings.export_end > 0 ? project.settings.export_end : duration;
+  const trimEnd = Math.max(trimStart + MIN_EXPORT_RANGE, Math.min(duration, trimEndRaw));
+  const updateTrimStart = useCallback((nextStart: number) => {
+    const clamped = Math.max(0, Math.min(trimEnd - MIN_EXPORT_RANGE, nextStart));
+    updateSettings({ export_start: clamped });
+  }, [trimEnd, updateSettings]);
+
+  const updateTrimEnd = useCallback((nextEnd: number) => {
+    const clamped = Math.max(trimStart + MIN_EXPORT_RANGE, Math.min(duration, nextEnd));
+    updateSettings({ export_end: clamped });
+  }, [duration, trimStart, updateSettings]);
 
   // --- Lane drag-to-select ---
   const [laneSelection, setLaneSelection] = useState<{ charId: string; startTime: number; endTime: number } | null>(null);
@@ -483,6 +885,7 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
             bold: false,
             underline: false,
             crossed: false,
+            italic: false,
           });
           setLaneSelection(null);
         }
@@ -583,6 +986,7 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
           bold: false,
           underline: false,
           crossed: false,
+          italic: false,
         });
         setLaneSelection(null);
       } else if (e.key === 'Escape') {
@@ -716,6 +1120,12 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
       >
         {/* Time ruler */}
         <div className="timeline-ruler" style={{ height: '24px', borderBottom: '1px solid #334155', position: 'sticky', top: 0, backgroundColor: 'rgba(15, 15, 25, 0.95)', zIndex: 20 }}>
+          {trimStart > 0 && (
+            <div style={{ position: 'absolute', left: TRACK_OFFSET, top: 0, width: trimStart * pps, height: '100%', background: 'rgba(0,0,0,0.35)', pointerEvents: 'none', zIndex: 21 }} />
+          )}
+          {trimEnd < duration && (
+            <div style={{ position: 'absolute', left: trimEnd * pps + TRACK_OFFSET, top: 0, right: 0, height: '100%', background: 'rgba(0,0,0,0.35)', pointerEvents: 'none', zIndex: 21 }} />
+          )}
           <div style={{ position: 'absolute', right: '12px', top: '4px', fontSize: '10px', color: '#64748b' }}>
             Ctrl + Scroll to Zoom
           </div>
@@ -730,6 +1140,8 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
               <TimelineMarkerBlock key={m.id} m={m} pps={pps} height={tracksHeight} onUpdate={updateMarker} />
             ))}
           </div>
+          <TimelineTrimHandle time={trimStart} pps={pps} color="#fb7185" onUpdate={updateTrimStart} />
+          <TimelineTrimHandle time={trimEnd} pps={pps} color="#38bdf8" onUpdate={updateTrimEnd} />
         </div>
 
         {/* Playhead */}
@@ -769,6 +1181,13 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
               End Limit
             </div>
           </div>
+        )}
+
+        {trimStart > 0 && (
+          <div style={{ position: 'absolute', left: TRACK_OFFSET, top: 24, width: trimStart * pps, bottom: 0, background: 'rgba(0,0,0,0.22)', pointerEvents: 'none', zIndex: 4 }} />
+        )}
+        {trimEnd < duration && (
+          <div style={{ position: 'absolute', left: trimEnd * pps + TRACK_OFFSET, top: 24, right: 0, bottom: 0, background: 'rgba(0,0,0,0.22)', pointerEvents: 'none', zIndex: 4 }} />
         )}
 
         {/* Audio Waveform */}

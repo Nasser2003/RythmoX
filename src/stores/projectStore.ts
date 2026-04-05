@@ -1,7 +1,7 @@
+import type { Project, Character, Dialogue, DialogueStyle, DialogueVisualCut, Marker, BandSettings, VideoInfo, VideoMetadata } from '../types/project';
 import { create } from 'zustand';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import type { Project, Character, Dialogue, Marker, BandSettings, VideoInfo, VideoMetadata } from '../types/project';
 import { DEFAULT_SETTINGS, CHARACTER_COLORS } from '../types/project';
 
 interface ProjectState {
@@ -21,6 +21,7 @@ interface ProjectState {
   editingMarkerId: string | null;
   selectedCharacterId: string | null;
   autoAddOnSelect: boolean;
+  fontPreviewDialogueId: string | null;
   videoUrl: string | null;
   isLoading: boolean;
   loadingMessage: string;
@@ -54,6 +55,7 @@ interface ProjectState {
 
   // Actions - Dialogues
   addDialogue: (dialogue: Omit<Dialogue, 'id'>) => void;
+  addDialogueVisualCut: (id: string, atTime: number) => void;
   updateDialogue: (id: string, updates: Partial<Dialogue>) => void;
   deleteDialogue: (id: string) => void;
   deleteSelected: () => void;
@@ -62,6 +64,8 @@ interface ProjectState {
   splitDialogue: (id: string, atTime: number) => void;
   fuseDialogues: () => void;
   requestDialogueEdit: (id: string) => void;
+  setDefaultDialogueStyle: (dialogueId: string) => void;
+  setDefaultDialogueStyleForRole: (dialogueId: string) => void;
 
   // Actions - Markers
   addMarker: (time: number) => void;
@@ -112,6 +116,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   selectedDialogueIds: [],
   editingDialogueId: null,
   selectedMarkerIds: [],
+  fontPreviewDialogueId: null,
   activeRightTab: 'chars' as const,
   editingMarkerId: null,
   selectedCharacterId: null,
@@ -405,9 +410,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   // -- Dialogue actions --
   addDialogue: (dialogueData) => {
+    const { project } = get();
+    // Pick the best matching style: per-role > global > none
+    const roleStyle = project.default_dialogue_style_by_role?.[dialogueData.character_id];
+    const globalStyle = project.default_dialogue_style;
+    const style: Partial<DialogueStyle> = roleStyle ?? globalStyle ?? {};
     const dialogue: Dialogue = {
       ...dialogueData,
+      font_family: style.font_family ?? dialogueData.font_family,
+      bold: style.bold ?? dialogueData.bold,
+      italic: style.italic ?? dialogueData.italic,
+      underline: style.underline ?? dialogueData.underline,
+      crossed: style.crossed ?? dialogueData.crossed,
       id: generateId(),
+      visual_cuts: dialogueData.visual_cuts ?? [],
     };
     set((state) => ({
       project: {
@@ -423,13 +439,76 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
+  addDialogueVisualCut: (id, atTime) => {
+    const dialogue = get().project.dialogues.find((d) => d.id === id);
+    if (!dialogue) return;
+    const duration = dialogue.end_time - dialogue.start_time;
+    if (duration <= 0) return;
+    if (atTime <= dialogue.start_time || atTime >= dialogue.end_time) return;
+
+    const position = (atTime - dialogue.start_time) / duration;
+    const existingCuts = dialogue.visual_cuts ?? [];
+    const minGap = 0.03;
+    if (existingCuts.some((cut) => Math.abs(cut.position - position) < minGap)) return;
+    const charIndex = Math.max(1, Math.min(Math.max(1, dialogue.text.length - 1), Math.round(dialogue.text.length * position)));
+
+    get().updateDialogue(id, {
+      visual_cuts: [...existingCuts, { id: generateId(), position, char_index: charIndex }],
+    });
+  },
+
   updateDialogue: (id, updates) => {
     set((state) => ({
+      ...(updates.font_family !== undefined ? { fontPreviewDialogueId: id } : {}),
       project: {
         ...state.project,
         dialogues: state.project.dialogues
-          .map((d) => (d.id === id ? { ...d, ...updates } : d))
+          .map((d) => (d.id === id ? {
+            ...d,
+            ...updates,
+            visual_cuts: updates.visual_cuts
+              ? [...updates.visual_cuts]
+                  .map((cut) => ({
+                    ...cut,
+                    position: Math.max(0.02, Math.min(0.98, cut.position)),
+                    char_index: typeof cut.char_index === 'number' ? Math.max(0, cut.char_index) : cut.char_index,
+                  }))
+                  .sort((a, b) => a.position - b.position)
+              : d.visual_cuts ?? [],
+          } : d))
           .sort((a, b) => a.start_time - b.start_time),
+      },
+      isDirty: true,
+    }));
+  },
+
+  setDefaultDialogueStyle: (dialogueId) => {
+    const d = get().project.dialogues.find((x) => x.id === dialogueId);
+    if (!d) return;
+    const style: DialogueStyle = { font_family: d.font_family, bold: d.bold, italic: d.italic, underline: d.underline, crossed: d.crossed };
+    set((state) => ({
+      project: {
+        ...state.project,
+        default_dialogue_style: style,
+        default_dialogue_style_by_role: Object.fromEntries(
+          state.project.characters.map((character) => [character.id, style])
+        ),
+      },
+      isDirty: true,
+    }));
+  },
+
+  setDefaultDialogueStyleForRole: (dialogueId) => {
+    const d = get().project.dialogues.find((x) => x.id === dialogueId);
+    if (!d) return;
+    const style: DialogueStyle = { font_family: d.font_family, bold: d.bold, italic: d.italic, underline: d.underline, crossed: d.crossed };
+    set((state) => ({
+      project: {
+        ...state.project,
+        default_dialogue_style_by_role: {
+          ...(state.project.default_dialogue_style_by_role ?? {}),
+          [d.character_id]: style,
+        },
       },
       isDirty: true,
     }));
@@ -462,7 +541,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
-  selectDialogue: (id) => set({ selectedDialogueId: id, selectedDialogueIds: id ? [id] : [], selectedMarkerIds: [], editingMarkerId: null }),
+  selectDialogue: (id) => set({ selectedDialogueId: id, selectedDialogueIds: id ? [id] : [], selectedMarkerIds: [], editingMarkerId: null, editingDialogueId: null, fontPreviewDialogueId: null }),
 
   toggleDialogueSelection: (id) => {
     const { selectedDialogueIds } = get();
@@ -487,12 +566,30 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     const ratio = (atTime - d.start_time) / (d.end_time - d.start_time);
     const splitChar = Math.round(ratio * d.text.length);
-    const textA = d.text.slice(0, splitChar).trimEnd();
-    const textB = d.text.slice(splitChar).trimStart();
+    const rawTextA = d.text.slice(0, splitChar);
+    const rawTextB = d.text.slice(splitChar);
+    const textA = rawTextA.trimEnd();
+    const textB = rawTextB.trimStart();
+    const removedLeadingB = rawTextB.length - textB.length;
+    const cuts = d.visual_cuts ?? [];
+    const cutsA: DialogueVisualCut[] = cuts
+      .filter((cut) => (cut.char_index ?? Math.round((cut.position ?? 0) * d.text.length)) < splitChar)
+      .map((cut) => ({
+        ...cut,
+        position: ratio > 0 ? cut.position / ratio : cut.position,
+        char_index: Math.min(textA.length, cut.char_index ?? Math.round(cut.position * d.text.length)),
+      }));
+    const cutsB: DialogueVisualCut[] = cuts
+      .filter((cut) => (cut.char_index ?? Math.round((cut.position ?? 0) * d.text.length)) > splitChar)
+      .map((cut) => ({
+        ...cut,
+        position: ratio < 1 ? (cut.position - ratio) / (1 - ratio) : cut.position,
+        char_index: Math.max(0, (cut.char_index ?? Math.round(cut.position * d.text.length)) - splitChar - removedLeadingB),
+      }));
 
     const idB = generateId();
-    const dialogueA: Dialogue = { ...d, end_time: atTime, text: textA, symbols: d.symbols.filter(s => s.time < atTime) };
-    const dialogueB: Dialogue = { ...d, id: idB, start_time: atTime, text: textB, symbols: d.symbols.filter(s => s.time >= atTime) };
+    const dialogueA: Dialogue = { ...d, end_time: atTime, text: textA, symbols: d.symbols.filter(s => s.time < atTime), visual_cuts: cutsA };
+    const dialogueB: Dialogue = { ...d, id: idB, start_time: atTime, text: textB, symbols: d.symbols.filter(s => s.time >= atTime), visual_cuts: cutsB };
 
     set((state) => ({
       project: {
@@ -520,12 +617,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const other = pair[1];
     // Text order follows temporal position
     const [earlier, later] = priority.start_time <= other.start_time ? [priority, other] : [other, priority];
+    const fusedStart = Math.min(priority.start_time, other.start_time);
+    const fusedEnd = Math.max(priority.end_time, other.end_time);
+    const fusedDuration = Math.max(0.001, fusedEnd - fusedStart);
+    const fusedCuts = [earlier, later]
+      .flatMap((dialogue) => (dialogue.visual_cuts ?? []).map((cut) => ({
+        id: cut.id,
+        position: ((dialogue.start_time - fusedStart) + cut.position * (dialogue.end_time - dialogue.start_time)) / fusedDuration,
+        char_index: dialogue === earlier
+          ? Math.min(earlier.text.trim().length, cut.char_index ?? Math.round(cut.position * earlier.text.length))
+          : earlier.text.trim().length + 1 + Math.min(later.text.trim().length, cut.char_index ?? Math.round(cut.position * later.text.length)),
+      })))
+      .sort((a, b) => a.position - b.position);
     const fusedDialogue: Dialogue = {
       ...priority,
-      start_time: Math.min(priority.start_time, other.start_time),
-      end_time: Math.max(priority.end_time, other.end_time),
+      start_time: fusedStart,
+      end_time: fusedEnd,
       text: earlier.text.trim() + ' ' + later.text.trim(),
       symbols: [...priority.symbols, ...other.symbols].sort((a, b) => a.time - b.time),
+      visual_cuts: fusedCuts,
     };
     set((state) => ({
       project: {
@@ -689,6 +799,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         bold: false,
         underline: false,
         crossed: false,
+        italic: false,
       });
     }
 

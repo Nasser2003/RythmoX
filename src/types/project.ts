@@ -5,6 +5,20 @@ export interface RythmoSymbol {
   time: number;
 }
 
+export interface DialogueStyle {
+  font_family: string;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  crossed: boolean;
+}
+
+export interface DialogueVisualCut {
+  id: string;
+  position: number;
+  char_index?: number;
+}
+
 export interface Dialogue {
   id: string;
   character_id: string;
@@ -12,10 +26,12 @@ export interface Dialogue {
   end_time: number;
   text: string;
   symbols: RythmoSymbol[];
+  visual_cuts?: DialogueVisualCut[];
   font_family: string;
   bold: boolean;
   underline: boolean;
   crossed: boolean;
+  italic: boolean;
 }
 
 export interface Character {
@@ -46,6 +62,8 @@ export interface BandSettings {
   font_size: number;
   font_family: string;
   show_timecodes: boolean;
+  export_start: number;
+  export_end: number;
 }
 
 export interface Project {
@@ -58,6 +76,8 @@ export interface Project {
   dialogues: Dialogue[];
   markers: Marker[];
   settings: BandSettings;
+  default_dialogue_style?: DialogueStyle;
+  default_dialogue_style_by_role?: Record<string, DialogueStyle>;
 }
 
 export interface VideoMetadata {
@@ -75,6 +95,8 @@ export const DEFAULT_SETTINGS: BandSettings = {
   font_size: 20,
   font_family: 'Inter',
   show_timecodes: true,
+  export_start: 0,
+  export_end: 0,
 };
 
 export const DEFAULT_FONTS: { label: string; value: string }[] = [

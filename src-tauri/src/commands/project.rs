@@ -1,11 +1,29 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 use tauri::command;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DialogueStyle {
+    pub font_family: String,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub crossed: bool,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RythmoSymbol {
     pub symbol_type: String, // "breath", "pause", "laugh", "cry", "noise"
     pub time: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DialogueVisualCut {
+    pub id: String,
+    pub position: f64,
+    #[serde(default)]
+    pub char_index: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -16,10 +34,14 @@ pub struct Dialogue {
     pub end_time: f64,
     pub text: String,
     pub symbols: Vec<RythmoSymbol>,
+    #[serde(default)]
+    pub visual_cuts: Vec<DialogueVisualCut>,
     pub font_family: String,
     pub bold: bool,
     pub underline: bool,
     pub crossed: bool,
+    #[serde(default)]
+    pub italic: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -45,6 +67,10 @@ pub struct BandSettings {
     pub font_size: f64,
     pub font_family: String,
     pub show_timecodes: bool,
+    #[serde(default)]
+    pub export_start: f64,
+    #[serde(default)]
+    pub export_end: f64,
 }
 
 impl Default for BandSettings {
@@ -55,6 +81,8 @@ impl Default for BandSettings {
             font_size: 20.0,
             font_family: "Inter".to_string(),
             show_timecodes: true,
+            export_start: 0.0,
+            export_end: 0.0,
         }
     }
 }
@@ -78,6 +106,10 @@ pub struct Project {
     pub dialogues: Vec<Dialogue>,
     pub markers: Vec<Marker>,
     pub settings: BandSettings,
+    #[serde(default)]
+    pub default_dialogue_style: Option<DialogueStyle>,
+    #[serde(default)]
+    pub default_dialogue_style_by_role: HashMap<String, DialogueStyle>,
 }
 
 impl Default for Project {
@@ -92,6 +124,8 @@ impl Default for Project {
             dialogues: vec![],
             markers: vec![],
             settings: BandSettings::default(),
+            default_dialogue_style: None,
+            default_dialogue_style_by_role: HashMap::new(),
         }
     }
 }

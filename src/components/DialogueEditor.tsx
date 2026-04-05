@@ -12,6 +12,7 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
     addDialogue,
     updateDialogue,
     deleteDialogue,
+    selectDialogue,
     selectedDialogueId,
     editingDialogueId,
     selectedCharacterId,
@@ -19,8 +20,6 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
 
   const { dialogues, characters, settings } = project;
 
-  // For inline gear settings popup
-  const [openSettingsId, setOpenSettingsId] = useState<string | null>(null);
   const [openRoleMenuId, setOpenRoleMenuId] = useState<string | null>(null);
   const [roleMenuPlacement, setRoleMenuPlacement] = useState<'up' | 'down'>('up');
   const [flashId, setFlashId] = useState<string | null>(null);
@@ -60,8 +59,16 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
       }
     };
 
+    const handleCloseTransientMenus = () => {
+      setOpenRoleMenuId(null);
+    };
+
     window.addEventListener('pointerdown', handlePointerDown);
-    return () => window.removeEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('rythmox:close-transient-menus', handleCloseTransientMenus as EventListener);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('rythmox:close-transient-menus', handleCloseTransientMenus as EventListener);
+    };
   }, []);
 
   const handleAdd = useCallback(() => {
@@ -88,6 +95,7 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
       bold: false,
       underline: false,
       crossed: false,
+      italic: false,
     });
   }, [characters, dialogues, settings, addDialogue, selectedCharacterId]);
 
@@ -146,6 +154,7 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
             ref={(el) => { itemRefs.current[d.id] = el; }}
             className={`dialogue-item glass-card${flashId === d.id ? ' flash' : ''}${openRoleMenuId === d.id ? ' role-menu-open' : ''}`}
             style={{ borderLeft: `4px solid ${getCharacterColor(d.character_id)}`, padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}
+            onClick={() => selectDialogue(d.id)}
             onDoubleClick={(e) => {
               // Focus playhead in timeline on double click
               e.stopPropagation();
@@ -206,15 +215,10 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
 
               <div className="dialogue-inline-actions">
                 <button
-                  onClick={() => setOpenSettingsId(openSettingsId === d.id ? null : d.id)}
-                  style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '15px', padding: 0 }}
-                  title="Advanced Settings"
-                >
-                  ⚙️
-                </button>
-
-                <button
-                  onClick={() => deleteDialogue(d.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteDialogue(d.id);
+                  }}
                   style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '25px', fontWeight: 'bold', padding: 0 }}
                   title="Delete Dialogue"
                 >
@@ -233,6 +237,7 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
                 updateDialogue(d.id, { text: e.target.value });
                 resizeTextarea(e.target);
               }}
+              onFocus={() => selectDialogue(d.id)}
               onInput={(e) => resizeTextarea(e.currentTarget)}
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="Type here..."
@@ -240,8 +245,8 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
               rows={1}
             />
 
-            {/* Advanced Settings Popup inline */}
-            {openSettingsId === d.id && (
+            {/* Advanced Settings inline for the active dialogue */}
+            {(selectedDialogueId === d.id || editingDialogueId === d.id) && (
               <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -253,6 +258,39 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
                     >
                       {DEFAULT_FONTS.map((f) => <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>)}
                     </select>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '11px', color: '#94a3b8' }}>Style</label>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {([
+                      { key: 'bold',      label: 'B',  title: 'Bold',          style: { fontWeight: 'bold' as const } },
+                      { key: 'italic',    label: 'I',  title: 'Italic',        style: { fontStyle: 'italic' as const } },
+                      { key: 'underline', label: 'U',  title: 'Underline',     style: { textDecoration: 'underline' as const } },
+                      { key: 'crossed',   label: 'S',  title: 'Strikethrough', style: { textDecoration: 'line-through' as const } },
+                    ] as const).map(({ key, label, title, style }) => {
+                      const active = !!(d as any)[key];
+                      return (
+                        <button
+                          key={key}
+                          title={title}
+                          onClick={() => updateDialogue(d.id, { [key]: !active } as any)}
+                          style={{
+                            width: '28px', height: '28px',
+                            borderRadius: '4px',
+                            border: active ? '1px solid rgba(255,255,255,0.6)' : '1px solid rgba(255,255,255,0.15)',
+                            background: active ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.2)',
+                            color: active ? '#fff' : '#94a3b8',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            ...style,
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
