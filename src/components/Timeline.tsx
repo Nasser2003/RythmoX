@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useProjectStore } from '../stores/projectStore';
 import { useVideoSync } from '../hooks/useVideoSync';
@@ -240,7 +240,7 @@ const TimelineDialogueCutHandle = ({
   );
 };
 
-const TimelineDialogueBlock = ({
+const TimelineDialogueBlock = React.memo(({
   dialogue,
   color,
   charName,
@@ -666,7 +666,7 @@ const TimelineDialogueBlock = ({
       )}
     </div>
   );
-};
+});
 
 const TimelineAudioWaveform: React.FC<{ waveform: number[], pps: number, duration: number, containerRef: React.RefObject<HTMLDivElement | null> }> = ({ waveform, pps, duration, containerRef }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -780,7 +780,14 @@ const TimelineAudioWaveform: React.FC<{ waveform: number[], pps: number, duratio
 const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
-  const { project, updateDialogue, updateMarker, updateSettings, setHoveredTime } = useProjectStore();
+  const lastHoveredTimeRef = useRef<number | null>(null);
+  // Granular selectors: project does NOT contain currentTime, so this won't
+  // re-render on every 60fps setCurrentTime call while video is playing.
+  const project = useProjectStore((s) => s.project);
+  const updateDialogue = useProjectStore((s) => s.updateDialogue);
+  const updateMarker = useProjectStore((s) => s.updateMarker);
+  const updateSettings = useProjectStore((s) => s.updateSettings);
+  const setHoveredTime = useProjectStore((s) => s.setHoveredTime);
   const selectedCharacterId = useProjectStore((s) => s.selectedCharacterId);
   const selectCharacter = useProjectStore((s) => s.selectCharacter);
   const { seek, getDuration } = videoSync;
@@ -1077,18 +1084,24 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
 
 
 
-  // Calculate generic markers interval
+  // Calculate generic markers interval – memoized so they don't recompute every render
   const END_PADDING = 400; // Extra padding so user can scroll past the end naturally
-  const totalWidth = duration * pps + TRACK_OFFSET + END_PADDING;
-  const interval = pps < 10 ? 60 : pps < 50 ? 10 : pps < 100 ? 5 : 1;
+  const totalWidth = useMemo(() => duration * pps + TRACK_OFFSET + END_PADDING, [duration, pps]);
+  const interval = useMemo(() => pps < 10 ? 60 : pps < 50 ? 10 : pps < 100 ? 5 : 1, [pps]);
 
   // Generate ticks
-  const ticks = [];
-  for (let t = 0; t <= duration; t += interval) {
-    ticks.push(t);
-  }
+  const ticks = useMemo(() => {
+    const result: number[] = [];
+    for (let t = 0; t <= duration; t += interval) {
+      result.push(t);
+    }
+    return result;
+  }, [duration, interval]);
 
-  const tracksHeight = (project.video?.waveform ? 40 : 0) + characters.length * 60 + 24;
+  const tracksHeight = useMemo(
+    () => (project.video?.waveform ? 40 : 0) + characters.length * 60 + 24,
+    [project.video?.waveform, characters.length]
+  );
 
   return (
     <div
@@ -1110,12 +1123,19 @@ const Timeline: React.FC<TimelineProps> = ({ videoSync }) => {
           const scrollLeft = containerRef.current.scrollLeft;
           const pointerX = e.clientX - rect.left + scrollLeft;
           if (pointerX > TRACK_OFFSET) {
-            setHoveredTime((pointerX - TRACK_OFFSET) / pps);
-          } else {
+            const newTime = (pointerX - TRACK_OFFSET) / pps;
+            const prev = lastHoveredTimeRef.current;
+            // Only update store if moved more than 2px – avoids 60fps store writes on every mouse pixel
+            if (prev === null || Math.abs(newTime - prev) > 2 / pps) {
+              lastHoveredTimeRef.current = newTime;
+              setHoveredTime(newTime);
+            }
+          } else if (lastHoveredTimeRef.current !== null) {
+            lastHoveredTimeRef.current = null;
             setHoveredTime(null);
           }
         }}
-        onMouseLeave={() => setHoveredTime(null)}
+        onMouseLeave={() => { lastHoveredTimeRef.current = null; setHoveredTime(null); }}
         style={{ width: `${totalWidth}px`, position: 'relative', minHeight: '100%', touchAction: 'none' }}
       >
         {/* Time ruler */}

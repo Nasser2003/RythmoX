@@ -6,7 +6,10 @@ const BandeRythmo: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animRef = useRef<number>(0);
-  const { project, selectDialogue } = useProjectStore();
+  // Use granular selector so currentTime changes don't trigger React re-renders here
+  // (drawBand already reads currentTime via getState() inside the rAF loop)
+  const project = useProjectStore((s) => s.project);
+  const selectDialogue = useProjectStore((s) => s.selectDialogue);
   const { settings } = project;
 
   const getCharacter = useCallback(
