@@ -1,17 +1,144 @@
-# Tauri + React + Typescript
-to build:
+# RythmoX
+
+**RythmoX** is a modern, free desktop application for creating and editing **rythmo bands** (bande rythmo) — the scrolling text strips used in dubbing and voice-over work to synchronize dialogue with video. Thanks to AI tools, this project took me only 3 days to develop (would have probably taken 1-2 months without them).
+
+> Built with Tauri v2 + React 19 + TypeScript. Windows only (for now).
+
+---
+
+## Why RythmoX?
+
+The most widely used free tool for rythmo bands, [Cappella](https://cappella.app/), hasn't been updated since 2008. Cappella does not support "CTRL+Z" and bigger files, which force users to downdgrade their videos to use Cappella. Thankfully RythmoX was built to offer a modern, accessible alternative with a clean interface and GPU-accelerated export.
+
+**Warning:** Since this is a new project, if you have any suggestions/features, write them in the "ISSUES" section of GitHub. I may implement them as soon as possible.
+
+---
+
+## Features
+
+- **Video import** — drag & drop or open MP4, MOV, MKV, AVI, and more
+- **Multi-character timeline** — one lane per character/role, with color coding
+- **Bande Rythmo canvas** — scrolling text strip synchronized to playback, with the playhead fixed at 25% from the left
+- **Dialogue editor** — inline text editing, font/style per dialogue, role switching
+- **Visual cuts (C)** — insert internal text separators inside a dialogue without splitting it into two blocks
+- **Split (X)** — cut a dialogue in two at the playhead position
+- **Merge (F)** — fuse two adjacent dialogues from the same character into one
+- **Markers** — place and label time markers on the timeline
+- **Subtitle import/export** — SRT and ASS/SSA formats supported
+- **GPU-accelerated export** — render the video with the rythmo band burned in; supports CPU (libx264), NVIDIA (NVENC), AMD (AMF), and Intel (QSV)
+- **Trim handles** — define export in/out points directly on the timeline
+- **Undo/Redo** — full history for all project edits
+- **Recent projects** — quick access to previously opened projects
+- **Save / Save As** — projects saved as `.rythmox` JSON files
+
+---
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Space` | Play / Pause |
+| `D` | Add dialogue at playhead on selected layer |
+| `X` | Split selected dialogue at playhead |
+| `C` | Insert visual cut inside selected dialogue at playhead |
+| `F` | Merge two selected dialogues (same character) |
+| `M` | Add marker at playhead |
+| `Del` | Delete selected dialogue(s) or marker(s) |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | Redo |
+| `Ctrl+N` | New project |
+| `Ctrl+O` | Open project |
+| `Ctrl+S` | Save project |
+| `Ctrl+Shift+S` | Save As |
+| `←` / `→` | Step one frame backward / forward |
+
+---
+
+## Building from Source
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) 18+
+- [Rust](https://rustup.rs/) (stable)
+- [Tauri CLI v2](https://tauri.app/)
+
+### Dev
+
 ```bash
-npm run tauri build
-# out: src-tauri/target/release/bundle/nsis/
+npm install
+npm run tauri dev
 ```
 
-# Origin of lightweigt ffmpeg exe
+### Production build
+
+```bash
+npm run tauri build
+# Installer output: src-tauri/target/release/bundle/nsis/
+```
+
+---
+
+## FFmpeg
+
+The app bundles a **custom lightweight `ffmpeg.exe`** compiled with only the codecs and filters needed for export. This keeps the binary small.
+
+### How to build the custom ffmpeg.exe
+
+#### 1. Install msys2
+
+Download and install [msys2](https://www.msys2.org/). Open the UCRT64 shell.
+
+#### 2. Install build tools
+
+```bash
+pacman -S --needed base-devel git mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-x264 mingw-w64-ucrt-x86_64-nasm
+# Press Enter to select all
+```
+
+#### 3. Clone FFmpeg
+
+```bash
+git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg-src
+cd ffmpeg-src
+```
+
+#### 4. Configure and build
+
+```bash
+./configure --disable-everything \
+  --enable-gpl --enable-static --disable-shared --disable-debug --disable-doc \
+  --enable-libx264 \
+  --enable-encoder=libx264,aac,wrapped_avframe,pcm_s16le \
+  --enable-decoder=h264,hevc,aac,mp3,ac3,eac3,pcm_s16le,pcm_s24le,pcm_f32le,mjpeg,mpeg4,vorbis,opus \
+  --enable-parser=h264,hevc,aac,mpegaudio,ac3,vorbis,opus \
+  --enable-filter=scale,overlay,format,color,split,nullsrc,crop,transpose,rotate,vflip,hflip,trim,atrim,aresample \
+  --enable-protocol=file \
+  --enable-muxer=mov,mp4,avi,matroska,wav \
+  --enable-demuxer=mov,avi,matroska,wav,aac,mp3 \
+  --disable-avdevice --disable-swscale-alpha
+
+make -j$(nproc)
+```
+
+Place the resulting `ffmpeg.exe` and `ffprobe.exe` in `src-tauri/resources/`.
+
+---
+
+## Links
+
+- GitHub: https://github.com/Nasser2003/RythmoX
+- Support on Patreon: https://patreon.com/NasserKotiyev
+
+## Documentation:
+
+
+## How I made my own lightweigt `ffmpeg.exe`
 How did I build a extreme lightweight ffmpeg exe instead of the heavy one that is available online directly?
 
-## Install msys2
+### Install msys2
 Since I'm on Windows, i have to install msys2. It will be usefull to run `make` commandes.
 
-## Download essential tools
+### Download essential tools
 - open msys2
 - choose a random location where you want to download ffmpeg files for compilation. For example `cd %userprofile%\dev`
 - Install essentials tools
@@ -20,41 +147,25 @@ pacman -S --needed base-devel git mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt
 # [enter to select all]
 ```
 
-## Clone ffmpeg github project
+### Clone ffmpeg github project
 ```bash
 git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg-src
 cd ffmpeg-src
 ```
 
-## Build the exe file with minimal config needed for our application
+### Build the exe file with minimal config needed for our application
 ```bash
 ./configure --disable-everything \
-  --enable-encoder=libx264 --enable-encoder=aac --enable-encoder=wrapped_avframe \
-  --enable-decoder=h264 --enable-decoder=aac --enable-decoder=pcm_s16le \
-  --enable-filter=scale --enable-filter=overlay --enable-filter=format --enable-filter=color --enable-filter=split --enable-filter=nullsrc \
-  --enable-libx264 --enable-gpl \
+  --enable-gpl --enable-static --disable-shared --disable-debug --disable-doc \
+  --enable-libx264 \
+  --enable-encoder=libx264,aac,wrapped_avframe,pcm_s16le \
+  --enable-decoder=h264,hevc,aac,mp3,ac3,eac3,pcm_s16le,pcm_s24le,pcm_f32le,mjpeg,mpeg4,vorbis,opus \
+  --enable-parser=h264,hevc,aac,mpegaudio,ac3,vorbis,opus \
+  --enable-filter=scale,overlay,format,color,split,nullsrc,crop,transpose,rotate,vflip,hflip,trim,atrim,aresample \
   --enable-protocol=file \
-  --enable-muxer=mov --enable-muxer=mp4 \
-  --enable-demuxer=mov --enable-demuxer=mp4 \
-  --disable-doc --disable-avdevice --disable-swscale-alpha \
-  --disable-debug --disable-shared --enable-static
+  --enable-muxer=mov,mp4,avi,matroska,wav \
+  --enable-demuxer=mov,avi,matroska,wav,aac,mp3 \
+  --disable-avdevice --disable-swscale-alpha
 
 make -j$(nproc)
 ```
-
-# Features to implement:
-- fix dialog exact letter split
-- ~~add start page to load recent files,...~~
-- ~~improve file ui design like on most softwares (file, edit, help)~~
-- ~~implement CTRL+Z~~
-- ~~improve export progression bar calculation~~
-- ~~apply group settings when multiple dialogs are selected~~
-- ~~save zoom and view pos settings in project and load~~
-- ~~when scroll, based on the red cursor pos.~~
-- ~~for this internal cut, add the list in additional settings of the dialog~~
-- ~~add bold, underline, cross to additionnal param to dialogs~~
-- ~~internal cut in dialog + drag possible to stretch some long sylabs.~~
-- ~~fix export preview that doesn't show sometimes~~
-- ~~in the export result, make the dialogue more filled instead of margin~~
-- ~~right click dialog: define as default style~~
-- ~~optimize app performance + video sub resolution~~

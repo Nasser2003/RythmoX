@@ -342,47 +342,66 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         resolution: [1920, 1080],
       };
 
+      // Extensions the browser can play natively (H.264/AAC in MP4/MOV container)
+      const BROWSER_SAFE_EXTS = ['mp4', 'm4v', 'webm'];
+      const fileExt = (path as string).split('.').pop()?.toLowerCase() ?? '';
+
       try {
         const metadata = await invoke<VideoMetadata>('get_video_metadata', { videoPath: path });
         videoInfo.duration = metadata.duration;
         videoInfo.fps = metadata.fps;
         videoInfo.resolution = [metadata.width, metadata.height];
 
-        const isWebCompatible = ['h264', 'avc', 'hevc', 'h265'].includes(metadata.codec.toLowerCase());
+        // Only h264/avc in a browser-safe container can play natively
+        const isWebCompatible = ['h264', 'avc'].includes(metadata.codec.toLowerCase())
+          && BROWSER_SAFE_EXTS.includes(fileExt);
 
-        // Set video immediately so user can start working
-        const immediateUrl = convertFileSrc(path as string);
-        set((state) => ({
-          project: { ...state.project, video: { ...videoInfo } },
-          videoUrl: immediateUrl,
-          isDirty: true,
-          isLoading: false,
-          loadingMessage: '',
-        }));
-
-        // Proxy + waveform in background (non-blocking)
-        if (!isWebCompatible && get().ffmpegAvailable) {
-          set({ loadingMessage: 'Creating proxy for incompatible format...' });
+        if (isWebCompatible) {
+          // Load directly — browser handles this fine
+          set((state) => ({
+            project: { ...state.project, video: videoInfo },
+            videoUrl: convertFileSrc(path as string),
+            isDirty: true,
+            isLoading: false,
+            loadingMessage: '',
+          }));
+        } else {
+          // Incompatible codec/container — must create proxy before showing video
+          if (!get().ffmpegAvailable) {
+            set({
+              isLoading: false,
+              loadingMessage: '',
+              errorMessage: `This video format (${metadata.codec}) cannot be played directly.\n\nPlease convert the file to MP4 (H.264) first, or install FFmpeg for automatic conversion.`,
+            });
+            return;
+          }
+          set({ loadingMessage: `Converting "${fileExt.toUpperCase()}" to proxy — please wait…` });
           try {
             const proxyPath = await invoke<string>('create_proxy', { videoPath: path });
-            videoInfo.proxy_path = proxyPath;
-            const proxyUrl = convertFileSrc(proxyPath);
             set((state) => ({
-              project: { ...state.project, video: { ...state.project.video!, proxy_path: proxyPath } },
-              videoUrl: proxyUrl,
+              project: { ...state.project, video: { ...videoInfo, proxy_path: proxyPath } },
+              videoUrl: convertFileSrc(proxyPath),
+              isDirty: true,
+              isLoading: false,
               loadingMessage: '',
             }));
-          } catch (e) {
-            console.warn('Proxy creation failed, using original', e);
-            set({ loadingMessage: '' });
+          } catch (proxyErr) {
+            set({
+              isLoading: false,
+              loadingMessage: '',
+              errorMessage: `Cannot convert this video to a playable format.\n\nThe bundled FFmpeg does not support "${fileExt.toUpperCase()}" files.\n\nTip: Convert the video to MP4 (H.264) first, or install a full FFmpeg on your system.`,
+            });
+            return;
           }
         }
 
+        // Waveform extraction (use proxy path if available)
         if (get().ffmpegAvailable) {
-          set({ loadingMessage: 'Extracting audio waveform...' });
+          const waveformPath = get().project.video?.proxy_path ?? (path as string);
+          set({ loadingMessage: 'Extracting audio waveform…' });
           try {
             const waveform = await invoke<number[]>('extract_audio_waveform', {
-              videoPath: path,
+              videoPath: waveformPath,
               peaksPerSecond: 100,
             });
             set((state) => ({
@@ -395,16 +414,47 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           }
         }
 
-        return; // already set state above
+        return;
       } catch (err) {
-        console.warn('FFmpeg metadata extraction failed, loading video directly', err);
+        console.warn('FFmpeg metadata extraction failed, trying fallback', err);
       }
 
-      // Fallback: no metadata, load directly
-      const videoUrl = convertFileSrc(path as string);
+      // Fallback: metadata unavailable (e.g. ffprobe can't read the format)
+      if (!BROWSER_SAFE_EXTS.includes(fileExt)) {
+        if (get().ffmpegAvailable) {
+          set({ loadingMessage: `Converting "${fileExt.toUpperCase()}" to proxy — please wait…` });
+          try {
+            const proxyPath = await invoke<string>('create_proxy', { videoPath: path });
+            set((state) => ({
+              project: { ...state.project, video: { ...videoInfo, proxy_path: proxyPath } },
+              videoUrl: convertFileSrc(proxyPath),
+              isDirty: true,
+              isLoading: false,
+              loadingMessage: '',
+            }));
+            return;
+          } catch {
+            set({
+              isLoading: false,
+              loadingMessage: '',
+              errorMessage: `Cannot import "${fileExt.toUpperCase()}" files.\n\nThe bundled FFmpeg does not support this format.\n\nTip: Convert the video to MP4 (H.264) first, or install a full FFmpeg on your system.`,
+            });
+            return;
+          }
+        } else {
+          set({
+            isLoading: false,
+            loadingMessage: '',
+            errorMessage: `Cannot import "${fileExt.toUpperCase()}" files.\n\nPlease convert the video to MP4 (H.264) first, or install FFmpeg for automatic conversion.`,
+          });
+          return;
+        }
+      }
+
+      // Last resort: extension looks safe, load directly
       set((state) => ({
         project: { ...state.project, video: videoInfo },
-        videoUrl,
+        videoUrl: convertFileSrc(path as string),
         isDirty: true,
         isLoading: false,
         loadingMessage: '',

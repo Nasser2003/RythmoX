@@ -211,15 +211,9 @@ pub async fn create_proxy(
         .unwrap_or("video");
     let proxy_path = proxy_dir.join(format!("{}_proxy.mp4", stem));
 
-    // If proxy already exists and is newer than source, skip
+    // Remove any stale proxy so we always re-encode with the current FFmpeg args
     if proxy_path.exists() {
-        if let (Ok(src_meta), Ok(proxy_meta)) = (std::fs::metadata(source), std::fs::metadata(&proxy_path)) {
-            if let (Ok(src_time), Ok(proxy_time)) = (src_meta.modified(), proxy_meta.modified()) {
-                if proxy_time > src_time {
-                    return Ok(proxy_path.to_string_lossy().to_string());
-                }
-            }
-        }
+        let _ = std::fs::remove_file(&proxy_path);
     }
 
     // Emit progress event
@@ -228,32 +222,69 @@ pub async fn create_proxy(
         stage: "Starting transcode...".to_string(),
     });
 
-    // Run FFmpeg transcode
     let resource_dir = get_resource_dir(&app_handle);
-    let output = hidden_cmd(find_ffmpeg(resource_dir.as_deref()))
+    let ffmpeg = find_ffmpeg(resource_dir.as_deref());
+    let proxy_str = proxy_path.to_str().unwrap_or("output.mp4");
+
+    // --- Attempt 1: video + audio ---
+    let output = hidden_cmd(&ffmpeg)
         .args([
-            "-y",                        // Overwrite
-            "-i", &video_path,           // Input
-            "-c:v", "libx264",           // H.264 codec
-            "-preset", "fast",           // Fast encoding
-            "-crf", "23",                // Good quality
-            "-c:a", "aac",               // AAC audio
-            "-b:a", "128k",              // Audio bitrate
-            "-movflags", "+faststart",   // Web optimized
-            "-vf", "scale='min(1280,iw)':-2",  // Max 720p proxy
-            proxy_path.to_str().unwrap_or("output.mp4"),
+            "-y",
+            "-i", &video_path,
+            "-map", "0:v:0",
+            "-map", "0:a:0?",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-movflags", "+faststart",
+            "-vf", "scale='min(1280,iw)':-2,format=yuv420p",
+            proxy_str,
         ])
         .output()
         .map_err(|e| format!("FFmpeg not found. Please install FFmpeg. Error: {}", e))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    if output.status.success() {
+        let _ = app_handle.emit("proxy-progress", ProxyProgress {
+            percent: 100.0,
+            stage: "Proxy created!".to_string(),
+        });
+        return Ok(proxy_path.to_string_lossy().to_string());
+    }
+
+    // --- Attempt 2: video only (audio codec not supported) ---
+    let _ = app_handle.emit("proxy-progress", ProxyProgress {
+        percent: 50.0,
+        stage: "Audio codec unsupported, retrying without audio...".to_string(),
+    });
+
+    let output2 = hidden_cmd(&ffmpeg)
+        .args([
+            "-y",
+            "-i", &video_path,
+            "-map", "0:v:0",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-an",                       // No audio (unsupported source codec)
+            "-movflags", "+faststart",
+            "-vf", "scale='min(1280,iw)':-2,format=yuv420p",
+            proxy_str,
+        ])
+        .output()
+        .map_err(|e| format!("FFmpeg not found: {}", e))?;
+
+    if !output2.status.success() {
+        let stderr = String::from_utf8_lossy(&output2.stderr);
         return Err(format!("FFmpeg transcode failed: {}", stderr));
     }
 
     let _ = app_handle.emit("proxy-progress", ProxyProgress {
         percent: 100.0,
-        stage: "Proxy created!".to_string(),
+        stage: "Proxy created (no audio — source audio codec not supported).".to_string(),
     });
 
     Ok(proxy_path.to_string_lossy().to_string())
