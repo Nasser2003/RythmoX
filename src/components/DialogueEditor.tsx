@@ -94,6 +94,7 @@ const DialogueEditor: React.FC<DialogueEditorProps> = ({ videoSync }) => {
       end_time: start + 2.0, // Default duration
       text: '', // Start empty, user types right away!
       symbols: [],
+      visual_cuts: [],
       font_family: settings.font_family,
       bold: false,
       underline: false,

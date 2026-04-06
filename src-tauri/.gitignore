@@ -7,5 +7,6 @@
 /gen/schemas
 
 # Bundled FFmpeg binaries (large external binaries, not tracked in git)
-/resources/ffmpeg.exe
-/resources/ffprobe.exe
+# [update] I was able to compile my own exe that are only 6mb (vs 200mb)
+# /resources/ffmpeg.exe
+# /resources/ffprobe.exe

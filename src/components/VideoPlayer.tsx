@@ -10,6 +10,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoSync }) => {
   const { videoUrl } = useProjectStore();
   const { videoRef, togglePlay, setIsPlaying } = videoSync;
 
+  React.useEffect(() => {
+    if (videoUrl) console.log('[VideoPlayer] videoUrl =', videoUrl);
+  }, [videoUrl]);
+
   return (
     <div className="video-player" id="video-player">
       {videoUrl ? (
@@ -20,6 +24,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoSync }) => {
           preload="auto"
           onClick={togglePlay}
           onEnded={() => setIsPlaying(false)}
+          onError={(e) => {
+            const v = e.currentTarget;
+            const err = v.error;
+            console.error('[VideoPlayer] Video error:', err?.code, err?.message, 'src=', v.src);
+          }}
           onLoadedMetadata={() => {
             // Update duration from actual video if needed
             const store = useProjectStore.getState();

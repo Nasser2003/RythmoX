@@ -33,8 +33,6 @@ function App() {
     addMarker,
     undo,
     redo,
-    canUndo,
-    canRedo,
   } = useProjectStore();
 
   // Check FFmpeg on mount
@@ -97,8 +95,13 @@ function App() {
 
   // Close any click-opened menu/popover when clicking elsewhere.
   useEffect(() => {
-    const handlePointerDown = () => {
-      window.dispatchEvent(new CustomEvent('rythmox:close-transient-menus'));
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement;
+      // Only close menus if clicking outside menu elements
+      const isInMenu = target.closest('.menu-dropdown');
+      if (!isInMenu) {
+        window.dispatchEvent(new CustomEvent('rythmox:close-transient-menus'));
+      }
     };
 
     window.addEventListener('pointerdown', handlePointerDown, { capture: true });
@@ -219,6 +222,7 @@ function App() {
               end_time: dst.currentTime + 2.0,
               text: '',
               symbols: [],
+              visual_cuts: [],
               font_family: dSettings.font_family,
               bold: false,
               italic: false,
@@ -275,7 +279,6 @@ function App() {
             <span className="logo-text">RythmoX</span>
           </div>
           <MenuBar
-            videoSync={videoSync}
             onImportSubtitles={() => setSubtitleModal('import')}
             onExportSubtitles={() => setSubtitleModal('export')}
             onExportVideo={() => { videoSync.pause(); setIsExporting(true); }}
@@ -350,11 +353,15 @@ function MenuDropdown({ label, children }: MenuDropdownProps) {
 
   return (
     <div className="menu-dropdown" ref={ref}>
-      <button className={`menu-dropdown-trigger${open ? ' active' : ''}`} onClick={() => setOpen(!open)}>
+      <button className={`menu-dropdown-trigger${open ? ' active' : ''}`} onClick={() => {
+        setOpen(!open);
+      }}>
         {label}
       </button>
       {open && (
-        <div className="menu-dropdown-panel" onClick={() => setOpen(false)}>
+        <div className="menu-dropdown-panel" onClick={() => {
+          queueMicrotask(() => setOpen(false));
+        }}>
           {children}
         </div>
       )}
@@ -378,7 +385,10 @@ function MenuItem({ label, shortcut, onClick, disabled, accent }: MenuItemProps)
   return (
     <button
       className="menu-dropdown-item"
-      onClick={onClick}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       disabled={disabled}
       style={accent ? { color: accent } : undefined}
     >
@@ -389,13 +399,12 @@ function MenuItem({ label, shortcut, onClick, disabled, accent }: MenuItemProps)
 }
 
 interface MenuBarProps {
-  videoSync: ReturnType<typeof useVideoSync>;
   onImportSubtitles: () => void;
   onExportSubtitles: () => void;
   onExportVideo: () => void;
 }
 
-function MenuBar({ videoSync, onImportSubtitles, onExportSubtitles, onExportVideo }: MenuBarProps) {
+function MenuBar({ onImportSubtitles, onExportSubtitles, onExportVideo }: MenuBarProps) {
   const {
     newProject, saveProject, saveProjectAs, loadProject, importVideo,
     undo, redo, canUndo, canRedo,

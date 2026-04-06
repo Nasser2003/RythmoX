@@ -5,6 +5,20 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::{command, Emitter};
 
+/// Create a Command with the console window hidden on Windows
+#[cfg(target_os = "windows")]
+fn hidden_cmd<S: AsRef<std::ffi::OsStr>>(program: S) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    let mut cmd = std::process::Command::new(program);
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    cmd
+}
+
+#[cfg(not(target_os = "windows"))]
+fn hidden_cmd<S: AsRef<std::ffi::OsStr>>(program: S) -> std::process::Command {
+    std::process::Command::new(program)
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VideoMetadata {
     pub duration: f64,
@@ -33,7 +47,7 @@ fn find_ffmpeg(resource_dir: Option<&std::path::Path>) -> String {
     if let Some(dir) = resource_dir {
         let bundled = dir.join("ffmpeg.exe");
         if bundled.exists() {
-            if std::process::Command::new(&bundled).arg("-version").output()
+            if hidden_cmd(&bundled).arg("-version").output()
                 .map(|o| o.status.success()).unwrap_or(false) {
                 return bundled.to_string_lossy().to_string();
             }
@@ -49,7 +63,7 @@ fn find_ffmpeg(resource_dir: Option<&std::path::Path>) -> String {
     ];
     for path in &candidates {
         if *path == "ffmpeg" || Path::new(path).exists() {
-            let result = std::process::Command::new(*path).arg("-version").output();
+            let result = hidden_cmd(*path).arg("-version").output();
             if result.map(|o| o.status.success()).unwrap_or(false) {
                 return path.to_string();
             }
@@ -69,7 +83,7 @@ fn find_ffprobe(resource_dir: Option<&std::path::Path>) -> String {
     if let Some(dir) = resource_dir {
         let bundled = dir.join("ffprobe.exe");
         if bundled.exists() {
-            if std::process::Command::new(&bundled).arg("-version").output()
+            if hidden_cmd(&bundled).arg("-version").output()
                 .map(|o| o.status.success()).unwrap_or(false) {
                 return bundled.to_string_lossy().to_string();
             }
@@ -112,7 +126,7 @@ pub async fn get_video_metadata(video_path: String, app_handle: tauri::AppHandle
         .len();
 
     // Use ffprobe to get video info
-    let output = std::process::Command::new(find_ffprobe(resource_dir.as_deref()))
+    let output = hidden_cmd(find_ffprobe(resource_dir.as_deref()))
         .args([
             "-v", "quiet",
             "-print_format", "json",
@@ -216,7 +230,7 @@ pub async fn create_proxy(
 
     // Run FFmpeg transcode
     let resource_dir = get_resource_dir(&app_handle);
-    let output = std::process::Command::new(find_ffmpeg(resource_dir.as_deref()))
+    let output = hidden_cmd(find_ffmpeg(resource_dir.as_deref()))
         .args([
             "-y",                        // Overwrite
             "-i", &video_path,           // Input
@@ -249,7 +263,7 @@ pub async fn create_proxy(
 #[command]
 pub async fn check_ffmpeg(app_handle: tauri::AppHandle) -> Result<String, String> {
     let resource_dir = get_resource_dir(&app_handle);
-    let output = std::process::Command::new(find_ffmpeg(resource_dir.as_deref()))
+    let output = hidden_cmd(find_ffmpeg(resource_dir.as_deref()))
         .arg("-version")
         .output()
         .map_err(|_| "FFmpeg not found. Please install FFmpeg and add it to your PATH.".to_string())?;
@@ -279,7 +293,7 @@ pub async fn extract_audio_waveform(
     let samples_per_peak = sample_rate / peaks_per_second;
 
     let resource_dir = get_resource_dir(&app_handle);
-    let mut command = std::process::Command::new(find_ffmpeg(resource_dir.as_deref()));
+    let mut command = hidden_cmd(find_ffmpeg(resource_dir.as_deref()));
     command.args([
         "-i", &video_path,
         "-vn",               // No video
@@ -423,17 +437,17 @@ pub async fn export_fast_video(
             "-c:v".into(), "h264_nvenc".into(),
             "-preset".into(), "p4".into(),
             "-rc".into(), "vbr".into(),
-            "-cq".into(), "23".into(),
+            "-cq".into(), "23".into(),  // Same quality as libx264 CRF 23
         ],
         "qsv" => vec![
             "-c:v".into(), "h264_qsv".into(),
-            "-global_quality".into(), "23".into(),
+            "-global_quality".into(), "23".into(),  // Same quality as libx264 CRF 23
             "-preset".into(), "medium".into(),
         ],
         "amf" => vec![
             "-c:v".into(), "h264_amf".into(),
             "-quality".into(), "balanced".into(),
-            "-qp_i".into(), "22".into(),
+            "-qp_i".into(), "22".into(),  // Same quality as before
             "-qp_p".into(), "24".into(),
         ],
         _ => vec![
@@ -456,7 +470,7 @@ pub async fn export_fast_video(
     ]);
 
     let resource_dir = get_resource_dir(&app_handle);
-    let mut child = std::process::Command::new(find_ffmpeg(resource_dir.as_deref()))
+    let mut child = hidden_cmd(find_ffmpeg(resource_dir.as_deref()))
         .args(&args)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -565,7 +579,7 @@ pub async fn detect_gpu_encoders(app_handle: tauri::AppHandle) -> Result<Vec<Str
 
     for (key, encoder) in &candidates {
         // Attempt a minimal dummy encode: 1 frame, 64x64, no output file
-        let result = std::process::Command::new(&ffmpeg)
+        let result = hidden_cmd(&ffmpeg)
             .args([
                 "-f", "lavfi",
                 "-i", "nullsrc=s=64x64:d=0.04",

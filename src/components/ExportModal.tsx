@@ -600,56 +600,59 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>Export Video</h3>
 
         {!isExporting && !error && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <p style={{ margin: 0, opacity: 0.8, fontSize: '14px' }}>Adjust the strip appearance before FFmpeg encoding.</p>
-            
-            {/* Preview Box */}
-            <div style={{ width: '100%', position: 'relative', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)', boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}>
-              <div
-                style={{
-                  width: '100%',
-                  backgroundColor: '#0A0C18',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  aspectRatio: project.video?.resolution ? `${project.video.resolution[0]} / ${project.video.resolution[1]}` : '16/9'
-                }}
-                onClick={() => setPreviewIsPlaying(p => !p)}
-              >
-                <canvas ref={previewCanvasRef} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
-              </div>
-
-              {/* Seek bar */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px 8px', background: 'rgba(10,12,24,0.92)', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                <span style={{ fontSize: '11px', fontFamily: 'monospace', color: '#94a3b8', flexShrink: 0, minWidth: '52px' }}>
-                  {fmtTime(Math.max(0, previewCurrentTime - trimStart))}
-                </span>
-                <div style={{ flex: 1, position: 'relative', height: '16px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                  <div style={{ position: 'absolute', left: 0, right: 0, height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.12)' }} />
-                  <div style={{
-                    position: 'absolute', left: 0, height: '4px', borderRadius: '2px',
-                    background: '#4ade80',
-                    width: `${exportDuration > 0 ? Math.min(1, (previewCurrentTime - trimStart) / exportDuration) * 100 : 0}%`,
-                  }} />
-                  <input
-                    type="range"
-                    min={trimStart}
-                    max={trimEnd}
-                    step={0.05}
-                    value={previewCurrentTime}
-                    onChange={(e) => previewSeek(parseFloat(e.target.value))}
-                    onMouseDown={() => setPreviewIsPlaying(false)}
-                    style={{ position: 'absolute', left: 0, right: 0, width: '100%', opacity: 0, cursor: 'pointer', height: '100%', margin: 0 }}
-                  />
+          <>
+          <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '24px', alignItems: 'start' }}>
+            {/* LEFT: Preview */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <h4 style={{ margin: '0 0 8px', fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>Preview</h4>
+              <div style={{ width: '100%', position: 'relative', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)', boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}>
+                <div
+                  style={{
+                    width: '100%',
+                    backgroundColor: '#0A0C18',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    aspectRatio: project.video?.resolution ? `${project.video.resolution[0]} / ${project.video.resolution[1]}` : '16/9'
+                  }}
+                  onClick={() => setPreviewIsPlaying(p => !p)}
+                >
+                  <canvas ref={previewCanvasRef} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
                 </div>
-                <span style={{ fontSize: '11px', fontFamily: 'monospace', color: '#94a3b8', flexShrink: 0, minWidth: '52px', textAlign: 'right' }}>
-                  {fmtTime(exportDuration)}
-                </span>
+
+                {/* Seek bar */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px 8px', background: 'rgba(10,12,24,0.92)', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <span style={{ fontSize: '11px', fontFamily: 'monospace', color: '#94a3b8', flexShrink: 0, minWidth: '52px' }}>
+                    {fmtTime(Math.max(0, previewCurrentTime - trimStart))}
+                  </span>
+                  <div style={{ flex: 1, position: 'relative', height: '16px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                    <div style={{ position: 'absolute', left: 0, right: 0, height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.12)' }} />
+                    <div style={{
+                      position: 'absolute', left: 0, height: '4px', borderRadius: '2px',
+                      background: '#4ade80',
+                      width: `${exportDuration > 0 ? Math.min(1, (previewCurrentTime - trimStart) / exportDuration) * 100 : 0}%`,
+                    }} />
+                    <input
+                      type="range"
+                      min={trimStart}
+                      max={trimEnd}
+                      step={0.05}
+                      value={previewCurrentTime}
+                      onChange={(e) => previewSeek(parseFloat(e.target.value))}
+                      onMouseDown={() => setPreviewIsPlaying(false)}
+                      style={{ position: 'absolute', left: 0, right: 0, width: '100%', opacity: 0, cursor: 'pointer', height: '100%', margin: 0 }}
+                    />
+                  </div>
+                  <span style={{ fontSize: '11px', fontFamily: 'monospace', color: '#94a3b8', flexShrink: 0, minWidth: '52px', textAlign: 'right' }}>
+                    {fmtTime(exportDuration)}
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            {/* RIGHT: Parameters */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', maxHeight: '60vh', overflowY: 'auto', paddingRight: '8px' }}>
               <div>
                 <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', marginBottom: '8px', fontWeight: '500' }}>
                   <span>Strip Scale (Vertical Zoom)</span>
@@ -720,64 +723,67 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   </div>
                 )}
               </div>
-            </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '13px', marginBottom: '8px', fontWeight: '500' }}>
-                Hardware Acceleration (GPU)
-              </label>
-              {availableGpus === null ? (
-                <div style={{ fontSize: '12px', opacity: 0.5, padding: '8px 0' }}>Detecting hardware...</div>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
-                  {([
-                    { value: 'none',  label: 'CPU',    desc: 'libx264' },
-                    { value: 'nvenc', label: 'NVIDIA', desc: 'h264_nvenc' },
-                    { value: 'qsv',   label: 'Intel',  desc: 'h264_qsv' },
-                    { value: 'amf',   label: 'AMD',    desc: 'h264_amf' },
-                  ] as const).map(opt => {
-                    const isAvailable = availableGpus.includes(opt.value);
-                    return (
-                      <button
-                        key={opt.value}
-                        onClick={() => isAvailable && setGpu(opt.value)}
-                        disabled={!isAvailable}
-                        title={isAvailable ? undefined : 'Not available on this system'}
-                        style={{
-                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
-                          padding: '8px 4px', borderRadius: '6px', cursor: isAvailable ? 'pointer' : 'not-allowed',
-                          fontSize: '12px',
-                          border: gpu === opt.value ? '1px solid #4ade80' : '1px solid rgba(255,255,255,0.15)',
-                          background: gpu === opt.value ? 'rgba(74,222,128,0.12)' : 'rgba(255,255,255,0.05)',
-                          color: isAvailable
-                            ? (gpu === opt.value ? '#4ade80' : 'rgba(255,255,255,0.7)')
-                            : 'rgba(255,255,255,0.25)',
-                          transition: 'all 0.15s',
-                          opacity: isAvailable ? 1 : 0.45,
-                        }}
-                      >
-                        <span style={{ fontWeight: '600' }}>{opt.label}</span>
-                        <span style={{ opacity: 0.6, fontSize: '10px' }}>{isAvailable ? opt.desc : 'unavailable'}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div style={{ marginTop: '10px', display: 'flex', gap: '12px', alignItems: 'center' }}>
-              <button className="btn btn-primary" onClick={startExport}>Start Final Export</button>
-              <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-              <button
-                className="btn btn-ghost"
-                onClick={resetSettings}
-                title="Reset to default values"
-                style={{ marginLeft: 'auto', fontSize: '12px', opacity: 0.7 }}
-              >
-                ↺ Reset
-              </button>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', marginBottom: '8px', fontWeight: '500' }}>
+                  Hardware Acceleration (GPU)
+                </label>
+                {availableGpus === null ? (
+                  <div style={{ fontSize: '12px', opacity: 0.5, padding: '8px 0' }}>Detecting hardware...</div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                    {([
+                      { value: 'none',  label: 'CPU',    desc: 'libx264' },
+                      { value: 'nvenc', label: 'NVIDIA', desc: 'h264_nvenc' },
+                      { value: 'qsv',   label: 'Intel',  desc: 'h264_qsv' },
+                      { value: 'amf',   label: 'AMD',    desc: 'h264_amf' },
+                    ] as const).map(opt => {
+                      const isAvailable = availableGpus.includes(opt.value);
+                      return (
+                        <button
+                          key={opt.value}
+                          onClick={() => isAvailable && setGpu(opt.value)}
+                          disabled={!isAvailable}
+                          title={isAvailable ? undefined : 'Not available on this system'}
+                          style={{
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+                            padding: '8px 4px', borderRadius: '6px', cursor: isAvailable ? 'pointer' : 'not-allowed',
+                            fontSize: '12px',
+                            border: gpu === opt.value ? '1px solid #4ade80' : '1px solid rgba(255,255,255,0.15)',
+                            background: gpu === opt.value ? 'rgba(74,222,128,0.12)' : 'rgba(255,255,255,0.05)',
+                            color: isAvailable
+                              ? (gpu === opt.value ? '#4ade80' : 'rgba(255,255,255,0.7)')
+                              : 'rgba(255,255,255,0.25)',
+                            transition: 'all 0.15s',
+                            opacity: isAvailable ? 1 : 0.45,
+                          }}
+                        >
+                          <span style={{ fontWeight: '600' }}>{opt.label}</span>
+                          <span style={{ opacity: 0.6, fontSize: '10px' }}>{isAvailable ? opt.desc : 'unavailable'}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <div style={{ marginTop: '6px', fontSize: '11px', opacity: 0.6, fontStyle: 'italic' }}>
+                💡 CPU compresses best but is slower. GPU is faster but produces larger files (trade-off).
+              </div>
             </div>
           </div>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '16px' }}>
+            <button className="btn btn-primary" onClick={startExport}>Start Final Export</button>
+            <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+            <button
+              className="btn btn-ghost"
+              onClick={resetSettings}
+              title="Reset to default values"
+              style={{ marginLeft: 'auto', fontSize: '12px', opacity: 0.7 }}
+            >
+              ↺ Reset
+            </button>
+          </div>
+          </>
         )}
 
         {isExporting && !error && (
@@ -828,7 +834,7 @@ const modalOverlayStyle: React.CSSProperties = {
 
 const modalStyle: React.CSSProperties = {
   width: '100%',
-  maxWidth: '600px',
+  maxWidth: '1100px',
   padding: '30px',
   display: 'flex',
   flexDirection: 'column',
