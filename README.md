@@ -21,6 +21,8 @@ The most widely used free tool for rythmo bands, [Cappella](https://cappella.app
 ### Exported video preview
 [![Preview](images/preview-export.gif)](images/exported_preview.mp4)
 
+Also a quick tutorial is available on youtuve: 
+https://www.youtube.com/watch?v=2tF5-ypzl64
 ---
 
 ## Features
