@@ -12,6 +12,15 @@ The most widely used free tool for rythmo bands, [Cappella](https://cappella.app
 
 **Warning:** Since this is a new project, if you have any suggestions/features, write them in the "ISSUES" section of GitHub. I may implement them as soon as possible.
 
+### Main view
+![app-preview](images/app-preview.png)
+
+### Export view
+![app-export](images/app-export.png)
+
+### Exported video preview
+[![Preview](images/preview-export.gif)](images/exported_preview.mp4)
+
 ---
 
 ## Features
