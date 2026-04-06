@@ -16,7 +16,7 @@ The most widely used free tool for rythmo bands, [Cappella](https://cappella.app
 
 ## Features
 
-- **Video import** — drag & drop or open MP4, MOV, MKV, AVI, and more
+- **Video import** — drag & drop or open MP4, MOV, MKV, AVI, and more; incompatible formats are automatically converted to a proxy
 - **Multi-character timeline** — one lane per character/role, with color coding
 - **Bande Rythmo canvas** — scrolling text strip synchronized to playback, with the playhead fixed at 25% from the left
 - **Dialogue editor** — inline text editing, font/style per dialogue, role switching
@@ -24,7 +24,9 @@ The most widely used free tool for rythmo bands, [Cappella](https://cappella.app
 - **Split (X)** — cut a dialogue in two at the playhead position
 - **Merge (F)** — fuse two adjacent dialogues from the same character into one
 - **Markers** — place and label time markers on the timeline
-- **Subtitle import/export** — SRT and ASS/SSA formats supported
+- **Subtitle import (SRT / ASS)** — import subtitle files and automatically convert them into dialogue blocks on the timeline; when importing ASS files, style names and actor fields are read as roles and each role is automatically mapped to a separate character lane; SRT files support a `[Role Name]` prefix convention that is also extracted as a character
+- **Subtitle export (SRT / ASS)** — export the full timeline back to a subtitle file
+- **Multi-select** — hold `Ctrl` and click to select multiple dialogues at once; `Del` deletes all of them in one action
 - **GPU-accelerated export** — render the video with the rythmo band burned in; supports CPU (libx264), NVIDIA (NVENC), AMD (AMF), and Intel (QSV)
 - **Trim handles** — define export in/out points directly on the timeline
 - **Undo/Redo** — full history for all project edits
@@ -129,43 +131,3 @@ Place the resulting `ffmpeg.exe` and `ffprobe.exe` in `src-tauri/resources/`.
 - GitHub: https://github.com/Nasser2003/RythmoX
 - Support on Patreon: https://patreon.com/NasserKotiyev
 
-## Documentation:
-
-
-## How I made my own lightweigt `ffmpeg.exe`
-How did I build a extreme lightweight ffmpeg exe instead of the heavy one that is available online directly?
-
-### Install msys2
-Since I'm on Windows, i have to install msys2. It will be usefull to run `make` commandes.
-
-### Download essential tools
-- open msys2
-- choose a random location where you want to download ffmpeg files for compilation. For example `cd %userprofile%\dev`
-- Install essentials tools
-```bash
-pacman -S --needed base-devel git mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-x264 mingw-w64-ucrt-x86_64-nasm
-# [enter to select all]
-```
-
-### Clone ffmpeg github project
-```bash
-git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg-src
-cd ffmpeg-src
-```
-
-### Build the exe file with minimal config needed for our application
-```bash
-./configure --disable-everything \
-  --enable-gpl --enable-static --disable-shared --disable-debug --disable-doc \
-  --enable-libx264 \
-  --enable-encoder=libx264,aac,wrapped_avframe,pcm_s16le \
-  --enable-decoder=h264,hevc,aac,mp3,ac3,eac3,pcm_s16le,pcm_s24le,pcm_f32le,mjpeg,mpeg4,vorbis,opus \
-  --enable-parser=h264,hevc,aac,mpegaudio,ac3,vorbis,opus \
-  --enable-filter=scale,overlay,format,color,split,nullsrc,crop,transpose,rotate,vflip,hflip,trim,atrim,aresample \
-  --enable-protocol=file \
-  --enable-muxer=mov,mp4,avi,matroska,wav \
-  --enable-demuxer=mov,avi,matroska,wav,aac,mp3 \
-  --disable-avdevice --disable-swscale-alpha
-
-make -j$(nproc)
-```
