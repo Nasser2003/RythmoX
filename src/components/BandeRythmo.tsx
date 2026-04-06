@@ -33,7 +33,7 @@ const BandeRythmo: React.FC = () => {
     const { scroll_speed, font_size, font_family, show_timecodes } = settings;
 
     // The playhead is at center
-    const playheadX = width / 2;
+    const playheadX = width / 4;
 
     // -- Clear --
     ctx.clearRect(0, 0, width, height);
@@ -260,7 +260,7 @@ const BandeRythmo: React.FC = () => {
 
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
-      const playheadX = rect.width / 2;
+      const playheadX = rect.width / 4;
       const { scroll_speed } = settings;
 
       // Find clicked dialogue

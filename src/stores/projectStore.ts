@@ -522,7 +522,32 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const existingCuts = dialogue.visual_cuts;
     const minGap = 0.03;
     if (existingCuts.some((cut) => Math.abs(cut.position - position) < minGap)) return;
-    const charIndex = Math.max(1, Math.min(Math.max(1, dialogue.text.length - 1), Math.round(dialogue.text.length * position)));
+
+    // Build segment boundaries from existing cuts so the new char_index reflects
+    // the *visually stretched* position, not a naive uniform distribution.
+    const sortedCuts = [...existingCuts].sort((a, b) => a.position - b.position);
+    const posBounds  = [0, ...sortedCuts.map(c => c.position), 1];
+    const charBounds = [
+      0,
+      ...sortedCuts.map(c =>
+        typeof c.char_index === 'number' ? c.char_index : Math.round(dialogue.text.length * c.position)
+      ),
+      dialogue.text.length,
+    ];
+
+    // Find which segment the new cut falls into
+    let segIdx = posBounds.length - 2; // default: last segment
+    for (let i = 0; i < posBounds.length - 1; i++) {
+      if (position >= posBounds[i] && position < posBounds[i + 1]) { segIdx = i; break; }
+    }
+
+    // Interpolate within that segment
+    const segLen = posBounds[segIdx + 1] - posBounds[segIdx];
+    const relPos  = segLen > 0 ? (position - posBounds[segIdx]) / segLen : 0;
+    const charIndex = Math.max(1, Math.min(
+      dialogue.text.length - 1,
+      charBounds[segIdx] + Math.round(relPos * (charBounds[segIdx + 1] - charBounds[segIdx]))
+    ));
 
     get().updateDialogue(id, {
       visual_cuts: [...existingCuts, { id: generateId(), position, char_index: charIndex }],
@@ -666,7 +691,28 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (atTime <= d.start_time || atTime >= d.end_time) return;
 
     const ratio = (atTime - d.start_time) / (d.end_time - d.start_time);
-    const splitChar = Math.round(ratio * d.text.length);
+
+    // Compute splitChar by interpolating within the visually-stretched segment,
+    // mirroring the same logic used in addDialogueVisualCut.
+    const sortedCuts = [...d.visual_cuts].sort((a, b) => a.position - b.position);
+    const posBounds  = [0, ...sortedCuts.map(c => c.position), 1];
+    const charBounds = [
+      0,
+      ...sortedCuts.map(c =>
+        typeof c.char_index === 'number' ? c.char_index : Math.round(d.text.length * c.position)
+      ),
+      d.text.length,
+    ];
+    let segIdx = posBounds.length - 2;
+    for (let i = 0; i < posBounds.length - 1; i++) {
+      if (ratio >= posBounds[i] && ratio < posBounds[i + 1]) { segIdx = i; break; }
+    }
+    const segLen = posBounds[segIdx + 1] - posBounds[segIdx];
+    const relPos  = segLen > 0 ? (ratio - posBounds[segIdx]) / segLen : 0;
+    const splitChar = Math.max(0, Math.min(
+      d.text.length,
+      charBounds[segIdx] + Math.round(relPos * (charBounds[segIdx + 1] - charBounds[segIdx]))
+    ));
     const rawTextA = d.text.slice(0, splitChar);
     const rawTextB = d.text.slice(splitChar);
     const textA = rawTextA.trimEnd();

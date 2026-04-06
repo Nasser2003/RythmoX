@@ -258,7 +258,7 @@ const ExportModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const overlayWidth = project.video?.resolution?.[0] || 1920;
 
   const TRACK_WIDTH = overlayWidth - LABEL_WIDTH;
-  const TRACK_OFFSET_X = LABEL_WIDTH + TRACK_WIDTH / 3;
+  const TRACK_OFFSET_X = LABEL_WIDTH + TRACK_WIDTH / 5;
 
   // Ref that always holds the latest drawing params — no need to restart the rAF loop when sliders change
   const previewDrawParamsRef = useRef({
