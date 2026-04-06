@@ -82,7 +82,7 @@ const TransportControls: React.FC<TransportControlsProps> = ({ videoSync }) => {
           <span style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.15)', margin: '0 4px', display: 'inline-block', verticalAlign: 'middle' }} />
           <button
             className="transport-btn"
-            title={canSplit ? 'Split dialogue at playhead (X)' : 'Select a dialogue and place the playhead inside it'}
+            title={canSplit ? 'Split dialogue in two at playhead position (X)' : 'Select a dialogue and move the playhead inside it to split it'}
             disabled={!canSplit}
             onClick={() => { if (selectedDialogueId) splitDialogue(selectedDialogueId, currentTime); }}
             style={{ opacity: canSplit ? 1 : 0.35, fontSize: '16px' }}
@@ -92,7 +92,7 @@ const TransportControls: React.FC<TransportControlsProps> = ({ videoSync }) => {
           </button>
           <button
             className="transport-btn"
-            title={canFuse ? 'Fuse 2 selected dialogues' : 'Select exactly 2 dialogues of the same character'}
+            title={canFuse ? 'Merge the 2 selected dialogues into one (F)' : 'Select exactly 2 consecutive dialogues from the same character to merge them'}
             disabled={!canFuse}
             onClick={() => fuseDialogues()}
             style={{ opacity: canFuse ? 1 : 0.35, color: '#a78bfa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -106,7 +106,7 @@ const TransportControls: React.FC<TransportControlsProps> = ({ videoSync }) => {
           </button>
           <button
             className="transport-btn"
-            title={hasMultiSelect ? `Delete ${selectedDialogueIds.length} selected dialogues (Del)` : hasMarkersSelected ? `Delete ${selectedMarkerIds.length} selected marker(s) (Del)` : (selectedDialogueId ? 'Delete selected dialogue (Del)' : 'Select a dialogue or marker first')}
+            title={hasMultiSelect ? `Delete ${selectedDialogueIds.length} selected dialogues (Del)` : hasMarkersSelected ? `Delete ${selectedMarkerIds.length} selected marker(s) (Del)` : (selectedDialogueId ? 'Delete selected dialogue (Del)' : 'Select a dialogue or marker to delete it')}
             disabled={!canDelete}
             onClick={() => {
               if (hasMultiSelect || hasMarkersSelected) {
@@ -126,7 +126,7 @@ const TransportControls: React.FC<TransportControlsProps> = ({ videoSync }) => {
           </button>
           <button
             className="transport-btn"
-            title={autoAddOnSelect ? 'Auto-add dialogue on lane drag (ON) — click to disable' : 'Auto-add dialogue on lane drag (OFF) — click to enable'}
+            title={autoAddOnSelect ? 'Auto-add ON: dragging on a lane automatically creates a new dialogue (click to turn off)' : 'Auto-add OFF: dragging on a lane does nothing (click to turn on)'}
             onClick={toggleAutoAddOnSelect}
             style={{ color: autoAddOnSelect ? '#4ade80' : 'rgba(255,255,255,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', outline: autoAddOnSelect ? '1px solid #4ade8060' : 'none', borderRadius: '4px', transition: 'color 0.15s, outline 0.15s' }}
             id="btn-auto-add"
@@ -141,7 +141,7 @@ const TransportControls: React.FC<TransportControlsProps> = ({ videoSync }) => {
           </button>
           <button
             className="transport-btn"
-            title={canAddVisualCut ? 'Add visual separator at playhead (C)' : 'Select a dialogue and place the playhead inside it'}
+            title={canAddVisualCut ? 'Insert a visual cut inside the dialogue at playhead — splits the displayed text without creating a separate dialogue (C)' : 'Select a dialogue and move the playhead inside it to insert a visual cut'}
             disabled={!canAddVisualCut}
             onClick={() => { if (selectedDialogueId) addDialogueVisualCut(selectedDialogueId, currentTime); }}
             style={{ opacity: canAddVisualCut ? 1 : 0.35, color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}

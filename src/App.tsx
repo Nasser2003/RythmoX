@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { useVideoSync } from './hooks/useVideoSync';
 import { useProjectStore } from './stores/projectStore';
 import VideoPlayer from './components/VideoPlayer';
@@ -326,6 +327,78 @@ function App() {
   );
 }
 
+/* ---- About Modal ---- */
+
+function AboutModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 10000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)',
+    }} onClick={onClose}>
+      <div className="glass-card" onClick={(e) => e.stopPropagation()} style={{
+        width: '460px', padding: '36px 40px', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', gap: '16px', textAlign: 'center',
+        border: '1px solid rgba(255,255,255,0.1)',
+      }}>
+        <div style={{ fontSize: '48px', lineHeight: 1 }}>🎬</div>
+        <div>
+          <h2 style={{ margin: 0, fontSize: '22px', fontWeight: '700', letterSpacing: '-0.5px' }}>RythmoX</h2>
+          <span style={{ fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>v1.0.0</span>
+        </div>
+
+        <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.7', color: '#94a3b8', maxWidth: '360px' }}>
+          I'm a passionate developer who loves building apps for fun, especially when I spot
+          unmet needs. RythmoX was born from that — I kept seeing people on YouTube use{' '}
+          <span
+            onClick={() => openUrl('https://cappella.app/')}
+            style={{ color: '#93c5fd', cursor: 'pointer', textDecoration: 'underline' }}
+          >
+            Cappella
+          </span>
+          , a free app last updated in 2008. Everyone deserved a modern alternative.
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', marginTop: '4px' }}>
+          <button
+            onClick={() => openUrl('https://github.com/Nasser2003/RythmoX')}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+              padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '500',
+              background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)',
+              color: '#e2e8f0', transition: 'background 0.15s',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+            </svg>
+            GitHub — Nasser2003/RythmoX
+          </button>
+
+          <button
+            onClick={() => openUrl('https://patreon.com/NasserKotiyev')}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+              padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600',
+              background: 'rgba(249,104,84,0.15)', border: '1px solid rgba(249,104,84,0.4)',
+              color: '#f96854', transition: 'background 0.15s',
+            }}
+          >
+            ❤ Support on Patreon
+          </button>
+        </div>
+
+        <button onClick={onClose} style={{
+          marginTop: '4px', background: 'none', border: 'none', color: '#475569',
+          cursor: 'pointer', fontSize: '12px', padding: '4px 8px',
+        }}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ---- Menu Bar with dropdown sections ---- */
 
 interface MenuDropdownProps {
@@ -405,6 +478,7 @@ interface MenuBarProps {
 }
 
 function MenuBar({ onImportSubtitles, onExportSubtitles, onExportVideo }: MenuBarProps) {
+  const [aboutOpen, setAboutOpen] = useState(false);
   const {
     newProject, saveProject, saveProjectAs, loadProject, importVideo,
     undo, redo, canUndo, canRedo,
@@ -459,9 +533,18 @@ function MenuBar({ onImportSubtitles, onExportSubtitles, onExportVideo }: MenuBa
         <MenuItem label="Export SRT / ASS…" onClick={onExportSubtitles} />
       </MenuDropdown>
 
+      <MenuDropdown label="Help">
+        <MenuItem label="About RythmoX…" onClick={() => setAboutOpen(true)} />
+        <MenuSep />
+        <MenuItem label="GitHub" onClick={() => openUrl('https://github.com/Nasser2003/RythmoX')} />
+        <MenuItem label="❤ Support on Patreon" onClick={() => openUrl('https://patreon.com/NasserKotiyev')} accent="#f96854" />
+      </MenuDropdown>
+
       <button className="menu-export-btn" onClick={onExportVideo}>
         🎥 Export
       </button>
+
+      {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
     </nav>
   );
 }
